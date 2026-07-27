@@ -312,7 +312,7 @@ def _h_ping(params):
     return {
         "fl_version": _fl_version,
         "protocol_version": PROTOCOL_VERSION,
-        "build": "color-v16",   # reload marker -- bump to verify reloads take
+        "build": "color-v17",   # reload marker -- bump to verify reloads take
         "ts": time.time(),
     }
 
@@ -2774,17 +2774,36 @@ def _eq_band_event_ids(track, band):
 
 
 def _h_get_channel_property(p):
-    """Read a per-channel REC_Chan_* property by name."""
+    """Read a per-channel REC_Chan_* property by name.
+
+    Where a typed channels.get*() function exists, use it (returns the
+    canonical 0..1 normalized value). For properties without a typed
+    getter, fall back to mixer.getEventValue(absolute_event_id) which
+    returns FL's raw REC value (scale varies per property)."""
     try:
         channel = int(p["channel"])
         prop = p["property"]
+        # Typed-getter fast path (returns normalized 0..1)
+        if prop == "volume":
+            v = float(channels.getChannelVolume(channel))  # type: ignore[attr-defined]
+            return {"ok": True, "channel": channel, "property": prop, "value": v, "scale": "normalized_0_1"}
+        if prop == "pan":
+            v = float(channels.getChannelPan(channel))  # type: ignore[attr-defined]
+            return {"ok": True, "channel": channel, "property": prop, "value": v, "scale": "normalized_minus1_to_1"}
+        if prop == "pitch":
+            v = float(channels.getChannelPitch(channel))  # type: ignore[attr-defined]
+            return {"ok": True, "channel": channel, "property": prop, "value": v, "scale": "semitones"}
+        if prop == "mute":
+            v = int(bool(channels.isChannelMuted(channel)))  # type: ignore[attr-defined]
+            return {"ok": True, "channel": channel, "property": prop, "value": v, "scale": "bool"}
+        # Fallback: raw REC value via mixer.getEventValue
         offset = _resolve_rec_chan(prop)
         base = channels.getRecEventId(channel)  # type: ignore[attr-defined]
-        # general.getEventValue accepts the absolute event id.
-        value = general.getEventValue(base + offset)
+        value = mixer.getEventValue(base + offset)  # type: ignore[attr-defined]
+        return {"ok": True, "channel": channel, "property": prop, "value": int(value),
+                "scale": "raw_rec (divide by 1280 for normalized_0_1; see FL docs)"}
     except Exception as e:
         return {"ok": False, "error": "get_channel_property: %s" % e}
-    return {"ok": True, "channel": channel, "property": prop, "value": int(value)}
 
 
 def _h_set_channel_property(p):
@@ -2804,22 +2823,30 @@ def _h_set_channel_property(p):
 
 
 def _h_get_mixer_property(p):
-    """Read a mixer-track REC_Mixer_* property by name (volume/pan/stereo_sep)."""
+    """Read a mixer-track REC_Mixer_* property by name.
+
+    Use the typed mixer.get*() functions where they exist. For REC values
+    without a typed getter, fall back to mixer.getEventValue(absolute)."""
     try:
         track = int(p["track"])
         prop = p["property"]
+        # Typed-getter fast path
+        if prop == "volume":
+            v = float(mixer.getTrackVolume(track))  # type: ignore[attr-defined]
+            return {"ok": True, "track": track, "property": prop, "value": v, "scale": "normalized_0_1"}
+        if prop == "pan":
+            v = float(mixer.getTrackPan(track))  # type: ignore[attr-defined]
+            return {"ok": True, "track": track, "property": prop, "value": v, "scale": "normalized_minus1_to_1"}
+        if prop in ("stereo_sep", "stereo_separation"):
+            v = float(mixer.getTrackStereoSep(track))  # type: ignore[attr-defined]
+            return {"ok": True, "track": track, "property": prop, "value": v, "scale": "normalized_minus1_to_1"}
+        # Fallback: raw REC value
         offset = _resolve_rec_mixer(prop)
-        # Mixer RECs are absolute (not per-channel offsets). getEventValue
-        # takes the absolute id directly.
-        # NOTE: mixer REC event ids have to be looked up via
-        # general.getRecEventId(mixer_track) + REC_Offset... but
-        # in FL's actual behavior, mixer REC ids are absolute based on
-        # the mixer track index. We use general.getEventValue which
-        # handles the resolution.
-        value = general.getEventValue(int(track) + offset)
+        value = mixer.getEventValue(int(track) + offset)  # type: ignore[attr-defined]
+        return {"ok": True, "track": track, "property": prop, "value": int(value),
+                "scale": "raw_rec"}
     except Exception as e:
         return {"ok": False, "error": "get_mixer_property: %s" % e}
-    return {"ok": True, "track": track, "property": prop, "value": int(value)}
 
 
 def _h_set_mixer_property(p):
@@ -2888,25 +2915,26 @@ def _h_get_eq_band(p):
             "ok": True,
             "track": track,
             "band": band,
-            "type": int(mixer.getEqGain(track, band + 8 * 3)),  # type=offset+8*3
-            # The above isn't right -- getEqGain returns the gain directly.
-            # Use the typed mixer.get* functions for accuracy.
             "gain_db": float(mixer.getEqGain(track, band)),
             "frequency_hz": float(mixer.getEqFrequency(track, band)),
             "bandwidth_oct": float(mixer.getEqBandwidth(track, band)),
+            # EQ type isn't directly readable via a typed mixer fn on this
+            # FL build. The raw REC int can be read via mixer.getEventValue
+            # at REC_Mixer_EQ_Type base + band. Return the int 0..5.
+            "type": int(mixer.getEventValue(  # type: ignore[attr-defined]
+                int(track) + int(midi.REC_Mixer_EQ_Type) + band)),
         }
     except Exception as e:
         return {"ok": False, "error": "get_eq_band: %s" % e}
 
 
 def _h_get_master_volume(p):
-    """Read the master fader (REC_MainVol) -- 0..1 normalized."""
+    """Master fader position (0.0..1.0). Uses mixer.getTrackVolume(0)."""
     try:
-        # Get the value as the global event id offset.
-        value = general.getEventValue(midi.REC_MainVol)  # type: ignore[attr-defined]
+        v = float(mixer.getTrackVolume(0))  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_master_volume: %s" % e}
-    return {"ok": True, "volume": int(value) / 1280.0}  # FL scale 0..1280
+    return {"ok": True, "volume": v}
 
 
 def _h_set_master_volume(p):
@@ -2923,11 +2951,14 @@ def _h_set_master_volume(p):
 
 
 def _h_get_master_shuffle(p):
+    """Master shuffle. FL doesn't expose a typed getter for the master
+    shuffle value on this build; return the raw REC value with a
+    scale hint."""
     try:
-        v = general.getEventValue(midi.REC_MainShuffle)  # type: ignore[attr-defined]
+        v = mixer.getEventValue(midi.REC_MainShuffle)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_master_shuffle: %s" % e}
-    return {"ok": True, "shuffle": int(v)}
+    return {"ok": True, "shuffle": int(v), "scale": "raw_rec (0..128 for normalized)"}
 
 
 def _h_set_master_shuffle(p):
@@ -2943,13 +2974,13 @@ def _h_set_master_shuffle(p):
 
 
 def _h_get_master_pitch(p):
-    """Master pitch in semi-tones (0 = center, range typically -12..+12)."""
+    """Master pitch (semi-tones). Returns the raw REC value; FL's
+    pitch scale is semi-tones * 100 (so 1200 = 1 octave up)."""
     try:
-        v = general.getEventValue(midi.REC_MainPitch)  # type: ignore[attr-defined]
+        v = mixer.getEventValue(midi.REC_MainPitch)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_master_pitch: %s" % e}
-    # FL stores pitch * 100; convert back
-    return {"ok": True, "pitch_semitones": int(v) / 100.0}
+    return {"ok": True, "pitch_semitones": int(v) / 100.0, "scale": "semitones"}
 
 
 def _h_set_master_pitch(p):
@@ -2976,7 +3007,7 @@ def _h_start_stop(p):
 
 def _h_get_song_position_bars(p):
     try:
-        v = general.getEventValue(midi.REC_SongPosition)  # type: ignore[attr-defined]
+        v = mixer.getEventValue(midi.REC_SongPosition)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_song_position_bars: %s" % e}
     return {"ok": True, "position_bars": int(v)}
@@ -2995,7 +3026,7 @@ def _h_set_song_position_bars(p):
 
 def _h_get_song_length_bars(p):
     try:
-        v = general.getEventValue(midi.REC_SongLength)  # type: ignore[attr-defined]
+        v = mixer.getEventValue(midi.REC_SongLength)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_song_length_bars: %s" % e}
     return {"ok": True, "length_bars": int(v)}
@@ -3088,18 +3119,22 @@ def _h_get_channel_type_named(p):
 
 
 def _h_get_step_param_named(p):
-    """Read a per-step parameter by name ('velocity', 'pan', etc.)."""
+    """Read a per-step parameter by name ('velocity', 'pan', etc.).
+
+    channels.getStepParam signature on FL 26.1.2: (channel, step, param, startPos).
+    startPos defaults to -1 ("current position"); passing 0 works fine."""
     try:
         channel = int(p["channel"])
         step = int(p["step"])
         param = p["param"]
+        start_pos = int(p.get("start_pos", 0))  # 0 = use the step's own startPos
         names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
                  "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
                  "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
                  "shift": midi.pShift, "repeat": midi.pRepeat}
         if param not in names:
             return {"ok": False, "error": "param must be one of: %s" % sorted(names.keys())}
-        v = channels.getStepParam(channel, step, names[param])  # type: ignore[attr-defined]
+        v = channels.getStepParam(channel, step, names[param], start_pos)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "get_step_param_named: %s" % e}
     return {"ok": True, "channel": channel, "step": step, "param": param, "value": float(v)}
@@ -3112,13 +3147,14 @@ def _h_set_step_param_named(p):
         step = int(p["step"])
         param = p["param"]
         value = float(p["value"])
+        start_pos = int(p.get("start_pos", 0))
         names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
                  "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
                  "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
                  "shift": midi.pShift, "repeat": midi.pRepeat}
         if param not in names:
             return {"ok": False, "error": "param must be one of: %s" % sorted(names.keys())}
-        channels.setStepParameterByIndex(channel, step, names[param], value)  # type: ignore[attr-defined]
+        channels.setStepParameterByIndex(channel, step, names[param], value, start_pos)  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "set_step_param_named: %s" % e}
     return {"ok": True, "channel": channel, "step": step, "param": param, "value": value}
@@ -3129,6 +3165,7 @@ def _h_get_step_param_list(p):
     try:
         channel = int(p["channel"])
         step = int(p["step"])
+        start_pos = int(p.get("start_pos", 0))
         names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
                  "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
                  "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
@@ -3136,7 +3173,7 @@ def _h_get_step_param_list(p):
         out = {"ok": True, "channel": channel, "step": step, "params": {}}
         for name, p_int in names.items():
             try:
-                out["params"][name] = float(channels.getStepParam(channel, step, p_int))  # type: ignore[attr-defined]
+                out["params"][name] = float(channels.getStepParam(channel, step, p_int, start_pos))  # type: ignore[attr-defined]
             except Exception:
                 out["params"][name] = None
     except Exception as e:
