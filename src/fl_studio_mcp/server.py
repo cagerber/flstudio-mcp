@@ -38,6 +38,7 @@ from .tools import phase1 as phase1_tools
 from .tools import pianoroll as pianoroll_tools
 from .tools import plugin as plugin_tools
 from .tools import presets as presets_tools
+from .tools import project as project_tools
 from .tools import resources as resource_defs
 from .tools import routing as routing_tools
 from .tools import transport as transport_tools
@@ -99,6 +100,7 @@ def build_server() -> FastMCP:
     chains_tools.register(mcp)      # Genre chain setup: map recipes to existing plugins
     export_tools.register(mcp)      # MIDI export: arrangement spec -> type-1 .mid on disk
     presets_tools.register(mcp)     # Preset suggester: read preset names from disk
+    project_tools.register(mcp)     # Project persistence: dirty / title / save (API limit report)
     mix_doctor_tools.register(mcp)  # Mix Doctor: diagnose whole mix + gated apply-fixes
     # Later tool packs register here as they ship:
     #   pattern_tools.register(mcp)

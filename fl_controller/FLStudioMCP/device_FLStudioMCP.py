@@ -426,6 +426,16 @@ def _truncate_name(name):
     return (name[:_NAME_CAP], True) if len(name) > _NAME_CAP else (name, False)
 
 
+def _safe(fn, default=None):
+    """Run an FL API call defensively -- returns ``default`` on any exception.
+    Used in commands that probe for state across FL builds where some
+    functions may not exist."""
+    try:
+        return fn()
+    except Exception:
+        return default
+
+
 def _paginate(total, start, entry_fn, key):
     start = max(0, min(int(start), total))
     out, i = [], start
@@ -1084,23 +1094,98 @@ def _h_arrange_add_marker(p):
 # ------------------------------------------------------------------
 
 def _h_save_project(p):
-    raise _ClientError("save_project: not yet implemented in this controller build",
-                       code="not_implemented")
+    """FL's scripting API on this build exposes NO save() / saveAs() function
+    (verified via api_probe -- only saveUndo + undoUp are available, neither
+    writes the project file). The controller script also can't write to disk
+    (sandbox blocks file I/O). So this command can only REPORT the project
+    state and direct the user to Ctrl+S (or Cmd+S on macOS).
+
+    Accepts optional ``path`` for documentation only -- it's returned in the
+    response so the user can see what we'd have written to.
+    """
+    out = {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "title": _safe(lambda: ui.getProgTitle()),
+        "dirty": _safe(lambda: bool(general.getChangedFlag())),
+        "recommendation": (
+            "FL's scripting API does not expose a save() function on this "
+            "build. Press Ctrl+S (Cmd+S on macOS) in FL to save. The MCP can "
+            "monitor the dirty flag with fl_get_project_dirty."
+        ),
+    }
+    if "path" in p:
+        out["requested_path"] = p["path"]
+    return out
 
 
 def _h_get_project_path(p):
-    raise _ClientError("get_project_path: not yet implemented in this controller build",
-                       code="not_implemented")
+    """ui.getProgTitle() returns the project TITLE; FL's scripting API does
+    NOT expose the absolute file path. The title usually contains the file
+    stem (e.g. 'my_song' for my_song.flp)."""
+    try:
+        title = ui.getProgTitle()
+    except Exception as e:
+        return {"ok": False, "error": "ui.getProgTitle: %s" % e}
+    out = {
+        "ok": True,
+        "title": title,
+        "path": None,             # not available via API
+        "note": ("FL's scripting API does not expose the absolute file path. "
+                 "title is the project name as shown in FL's title bar."),
+    }
+    if "dirty" not in p or p.get("dirty"):
+        try:
+            out["dirty"] = bool(general.getChangedFlag())
+        except Exception:
+            out["dirty"] = None  # type: ignore[assignment]
+    return out
 
 
 def _h_get_project_dirty(p):
-    raise _ClientError("get_project_dirty: not yet implemented in this controller build",
-                       code="not_implemented")
+    """general.getChangedFlag() returns True if the project has unsaved
+    modifications since the last save."""
+    try:
+        dirty = bool(general.getChangedFlag())
+    except Exception as e:
+        return {"ok": False, "error": "general.getChangedFlag: %s" % e}
+    out = {"ok": True, "dirty": dirty}
+    if p.get("with_title", True):
+        try:
+            out["title"] = ui.getProgTitle()
+        except Exception:
+            out["title"] = None
+    return out
 
 
 def _h_export_current_project_midi(p):
-    raise _ClientError("export_current_project_midi: not yet implemented in this controller build",
-                       code="not_implemented")
+    """FL's scripting API exposes NO pattern.getNote* / channel.getNote*
+    functions (verified via api_probe on FL 26.1.2 build 5557). Notes live in
+    the piano-roll data structures that the API does not surface. There is
+    no way for the controller script to enumerate every note in every
+    pattern + channel.
+
+    Workarounds (in order of recommendation):
+      1. Build the .mid from a SPEC using fl_export_midi -- you describe the
+         tracks and notes you want and the server writes the type-1 .mid.
+      2. In FL: File > Export > MIDI, do it manually.
+    """
+    return {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "title": _safe(lambda: ui.getProgTitle()),
+        "dirty": _safe(lambda: bool(general.getChangedFlag())),
+        "channel_count": _safe(lambda: channels.channelCount()),
+        "pattern_count": _safe(lambda: patterns.patternCount()),
+        "recommendation": (
+            "FL's scripting API does not expose note enumeration. Use "
+            "fl_export_midi with a track spec (Claude generates the notes "
+            "and the server writes the .mid), or export manually in FL: "
+            "File > Export > MIDI."
+        ),
+    }
 
 
 def _h_create_channel(p):
