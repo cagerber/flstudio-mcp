@@ -319,6 +319,47 @@ CMD_TOGGLE_BROWSER_NODE    = "toggle_browser_node"         # ui.toggleBrowserNod
 CMD_IS_BROWSER_AUTO_HIDE   = "is_browser_auto_hide"        # ui.isBrowserAutoHide()
 CMD_SET_BROWSER_AUTO_HIDE  = "set_browser_auto_hide"       # ui.setBrowserAutoHide(value)
 
+# v0.5 -- typed REC surface using FL's midi.py constants. The server
+# passes a string name for the property/target/scale/snap/window; the
+# controller script imports the real `midi` module from FL's runtime
+# Python and resolves the string to the matching REC_* integer.
+#
+# These give the MCP a clean typed API (no raw event_id arithmetic
+# leaking out to the user) while keeping the wire format compact.
+
+# Per-channel REC_Chan_* (16+ properties)
+CMD_GET_CHANNEL_PROPERTY    = "get_channel_property"        # name -> midi.REC_Chan_*
+CMD_SET_CHANNEL_PROPERTY    = "set_channel_property"        # name -> midi.REC_Chan_*
+# Mixer track REC_Mixer_* (volume, pan, stereo sep, plus full 8-band EQ)
+CMD_GET_MIXER_PROPERTY      = "get_mixer_property"          # name -> midi.REC_Mixer_*
+CMD_SET_MIXER_PROPERTY      = "set_mixer_property"          # name -> midi.REC_Mixer_*
+CMD_SET_EQ_BAND             = "set_eq_band"                 # one-shot: type+freq+bw+gain for a band
+CMD_GET_EQ_BAND             = "get_eq_band"                 # read all 4 props for a band
+# Global REC_Global_* (master volume, shuffle, pitch, tempo)
+CMD_GET_MASTER_VOLUME       = "get_master_volume"           # REC_MainVol
+CMD_SET_MASTER_VOLUME       = "set_master_volume"           # REC_MainVol
+CMD_GET_MASTER_SHUFFLE      = "get_master_shuffle"          # REC_MainShuffle
+CMD_SET_MASTER_SHUFFLE      = "set_master_shuffle"          # REC_MainShuffle
+CMD_GET_MASTER_PITCH        = "get_master_pitch"            # REC_MainPitch
+CMD_SET_MASTER_PITCH        = "set_master_pitch"            # REC_MainPitch
+# Special RECs (transport + start/stop)
+CMD_START_STOP              = "start_stop"                  # REC_StartStop: 0=Stop, 1=Start
+CMD_GET_SONG_POSITION_BARS  = "get_song_position_bars"      # REC_SongPosition
+CMD_SET_SONG_POSITION_BARS  = "set_song_position_bars"      # REC_SongPosition
+CMD_GET_SONG_LENGTH_BARS    = "get_song_length_bars"        # REC_SongLength
+# Scales (channel-rack harmonic scale)
+CMD_GET_SCALE               = "get_scale"                   # current scale int
+CMD_SET_SCALE               = "set_scale"                   # name -> HARMONICSCALE_*
+# Channel-type + step-param + window + snap-mode named enum wrappers
+# (v0.4 returned raw ints from these; v0.5 takes/returns names where useful)
+CMD_GET_CHANNEL_TYPE_NAMED  = "get_channel_type_named"      # returns "sampler"/"generator"/...
+CMD_GET_STEP_PARAM_NAMED    = "get_step_param_named"        # param="velocity", returns value
+CMD_SET_STEP_PARAM_NAMED    = "set_step_param_named"        # param="velocity", value
+CMD_GET_STEP_PARAM_LIST     = "get_step_param_list"         # for a whole channel+step, return all 9
+# Note-name utilities (server-side; uses utils.py mirror)
+CMD_NOTE_NAME               = "note_name"                   # MIDI int -> "C5"
+CMD_VOL_TO_DB               = "vol_to_db"                   # 0..1 FL curve -> dB
+
 
 # ---------------------------------------------------------------------------
 # SysEx wire format

@@ -46,6 +46,7 @@ from .tools import pianoroll as pianoroll_tools
 from .tools import plugin as plugin_tools
 from .tools import presets as presets_tools
 from .tools import project as project_tools
+from .tools import rec_surface as rec_surface_tools
 from .tools import resources as resource_defs
 from .tools import routing as routing_tools
 from .tools import transport as transport_tools
@@ -131,6 +132,7 @@ def build_server() -> FastMCP:
     patterns_extra_tools.register(mcp)  # v0.4: pattern color/length/channel loop/multi-select
     mixer_extra_tools.register(mcp)  # v0.4: parametric EQ, plugin mix/mute, REC events, track ops
     ui_tools.register(mcp)          # v0.4: hint bar, snap mode, focused plugin, window, browser
+    rec_surface_tools.register(mcp)  # v0.5: typed REC_Chan_*, REC_Mixer_*, master, transport, scale, named enums
     mix_doctor_tools.register(mcp)  # Mix Doctor: diagnose whole mix + gated apply-fixes
     # Later tool packs register here as they ship:
     #   pattern_tools.register(mcp)

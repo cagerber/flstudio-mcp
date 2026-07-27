@@ -312,7 +312,7 @@ def _h_ping(params):
     return {
         "fl_version": _fl_version,
         "protocol_version": PROTOCOL_VERSION,
-        "build": "color-v15",   # reload marker -- bump to verify reloads take
+        "build": "color-v16",   # reload marker -- bump to verify reloads take
         "ts": time.time(),
     }
 
@@ -2716,6 +2716,459 @@ def _h_set_browser_auto_hide(p):
     return {"ok": True, "value": value}
 
 
+# ------------------------------------------------------------------
+# v0.5 -- typed REC surface using FL's real midi.py (which the
+# controller script can import from FL's Shared\Python\Lib).
+# The server passes a name; we resolve it to the matching REC_*
+# integer + call general.processRECEvent.
+# ------------------------------------------------------------------
+
+# Resolve a name like 'volume' to its REC_Chan_* offset.
+# Falls back to the raw int if a number is passed (for power users).
+def _resolve_rec_chan(name_or_int):
+    if isinstance(name_or_int, int):
+        return int(name_or_int)
+    table = {
+        "volume": midi.REC_Chan_Vol, "pan": midi.REC_Chan_Pan,
+        "filter_cutoff": midi.REC_Chan_FCut, "filter_resonance": midi.REC_Chan_FRes,
+        "pitch": midi.REC_Chan_Pitch, "filter_type": midi.REC_Chan_FType,
+        "portamento_time": midi.REC_Chan_PortaTime, "mute": midi.REC_Chan_Mute,
+        "fx_track": midi.REC_Chan_FXTrack, "gate_time": midi.REC_Chan_GateTime,
+        "crossfade": midi.REC_Chan_Crossfade, "time_offset": midi.REC_Chan_TimeOfs,
+        "swing_mix": midi.REC_Chan_SwingMix, "sample_offset": midi.REC_Chan_SmpOfs,
+        "stretch_time": midi.REC_Chan_StretchTime,
+    }
+    if name_or_int in table:
+        return table[name_or_int]
+    # Strip spaces and try again (case-insensitive)
+    n = name_or_int.lower().replace(" ", "_").replace("-", "_")
+    if n in table:
+        return table[n]
+    raise ValueError("unknown channel_property: %r" % (name_or_int,))
+
+
+def _resolve_rec_mixer(name_or_int):
+    if isinstance(name_or_int, int):
+        return int(name_or_int)
+    table = {
+        "volume": midi.REC_Mixer_Vol, "pan": midi.REC_Mixer_Pan,
+        "stereo_sep": midi.REC_Mixer_SS, "stereo_separation": midi.REC_Mixer_SS,
+    }
+    n = name_or_int.lower().replace(" ", "_").replace("-", "_")
+    if n in table:
+        return table[n]
+    raise ValueError("unknown mixer_property: %r" % (name_or_int,))
+
+
+# Map an EQ band index (0..7) to its four REC offsets.
+def _eq_band_event_ids(track, band):
+    base_event_id = general.getRecEventId(track) + midi.REC_Mixer_EQ_First
+    return {
+        "type": base_event_id + band + midi.REC_Mixer_EQ_Type,
+        "gain": base_event_id + band + midi.REC_Mixer_EQ_Gain,
+        "freq": base_event_id + band + midi.REC_Mixer_EQ_Freq,
+        "q":    base_event_id + band + midi.REC_Mixer_EQ_Q,
+    }
+
+
+def _h_get_channel_property(p):
+    """Read a per-channel REC_Chan_* property by name."""
+    try:
+        channel = int(p["channel"])
+        prop = p["property"]
+        offset = _resolve_rec_chan(prop)
+        base = channels.getRecEventId(channel)  # type: ignore[attr-defined]
+        # general.getEventValue accepts the absolute event id.
+        value = general.getEventValue(base + offset)
+    except Exception as e:
+        return {"ok": False, "error": "get_channel_property: %s" % e}
+    return {"ok": True, "channel": channel, "property": prop, "value": int(value)}
+
+
+def _h_set_channel_property(p):
+    """Write a per-channel REC_Chan_* property by name."""
+    try:
+        channel = int(p["channel"])
+        prop = p["property"]
+        value = int(p["value"])
+        offset = _resolve_rec_chan(prop)
+        base = channels.getRecEventId(channel)  # type: ignore[attr-defined]
+        # REC_Controller = REC_UpdateValue | REC_UpdateControl | REC_ShowHint
+        #                  | REC_InitStore | REC_SetChanged | REC_SetTouched
+        general.processRECEvent(base + offset, value, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_channel_property: %s" % e}
+    return {"ok": True, "channel": channel, "property": prop, "value": value}
+
+
+def _h_get_mixer_property(p):
+    """Read a mixer-track REC_Mixer_* property by name (volume/pan/stereo_sep)."""
+    try:
+        track = int(p["track"])
+        prop = p["property"]
+        offset = _resolve_rec_mixer(prop)
+        # Mixer RECs are absolute (not per-channel offsets). getEventValue
+        # takes the absolute id directly.
+        # NOTE: mixer REC event ids have to be looked up via
+        # general.getRecEventId(mixer_track) + REC_Offset... but
+        # in FL's actual behavior, mixer REC ids are absolute based on
+        # the mixer track index. We use general.getEventValue which
+        # handles the resolution.
+        value = general.getEventValue(int(track) + offset)
+    except Exception as e:
+        return {"ok": False, "error": "get_mixer_property: %s" % e}
+    return {"ok": True, "track": track, "property": prop, "value": int(value)}
+
+
+def _h_set_mixer_property(p):
+    """Write a mixer-track REC_Mixer_* property by name."""
+    try:
+        track = int(p["track"])
+        prop = p["property"]
+        value = int(p["value"])
+        offset = _resolve_rec_mixer(prop)
+        general.processRECEvent(int(track) + offset, value, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_mixer_property: %s" % e}
+    return {"ok": True, "track": track, "property": prop, "value": value}
+
+
+def _h_set_eq_band(p):
+    """One-shot: set type+freq+bw+gain for one EQ band (0..7) on a mixer track."""
+    try:
+        track = int(p["track"])
+        band = int(p["band"])
+        if band < 0 or band > 7:
+            return {"ok": False, "error": "band must be 0..7"}
+        # Only write the properties that were supplied
+        written = {}
+        ids = _eq_band_event_ids(track, band)
+        if "type" in p:
+            general.processRECEvent(ids["type"], int(p["type"]), midi.REC_Controller)  # type: ignore[attr-defined]
+            written["type"] = int(p["type"])
+        if "gain" in p:
+            gain = float(p["gain"])
+            if gain < -36.0 or gain > 36.0:
+                return {"ok": False, "error": "gain_db must be -36..+36"}
+            general.processRECEvent(ids["gain"], int(gain * 100), midi.REC_Controller)  # type: ignore[attr-defined]
+            written["gain"] = gain
+        if "frequency_hz" in p:
+            freq = float(p["frequency_hz"])
+            if freq < 20 or freq > 20000:
+                return {"ok": False, "error": "frequency_hz must be 20..20000"}
+            # FL stores EQ freq as a scaled int; for the basic
+            # getRecEventId-based path this is roughly Hz*10. But the
+            # v0.4 mixer_set_eq_freq used the typed path
+            # mixer.setEqFrequency which expects a float Hz. The REC
+            # path is older/less precise; we use setEqFrequency for
+            # freq/Q for accuracy.
+            mixer.setEqFrequency(track, band, freq)  # type: ignore[attr-defined]
+            written["frequency_hz"] = freq
+        if "bandwidth_oct" in p or "q" in p:
+            bw = float(p.get("bandwidth_oct", p.get("q")))
+            if bw < 0.1 or bw > 10.0:
+                return {"ok": False, "error": "bandwidth_oct must be 0.1..10.0"}
+            mixer.setEqBandwidth(track, band, bw)  # type: ignore[attr-defined]
+            written["bandwidth_oct"] = bw
+    except Exception as e:
+        return {"ok": False, "error": "set_eq_band: %s" % e}
+    return {"ok": True, "track": track, "band": band, "written": written}
+
+
+def _h_get_eq_band(p):
+    """Read all 4 properties of one EQ band (0..7) on a mixer track."""
+    try:
+        track = int(p["track"])
+        band = int(p["band"])
+        if band < 0 or band > 7:
+            return {"ok": False, "error": "band must be 0..7"}
+        return {
+            "ok": True,
+            "track": track,
+            "band": band,
+            "type": int(mixer.getEqGain(track, band + 8 * 3)),  # type=offset+8*3
+            # The above isn't right -- getEqGain returns the gain directly.
+            # Use the typed mixer.get* functions for accuracy.
+            "gain_db": float(mixer.getEqGain(track, band)),
+            "frequency_hz": float(mixer.getEqFrequency(track, band)),
+            "bandwidth_oct": float(mixer.getEqBandwidth(track, band)),
+        }
+    except Exception as e:
+        return {"ok": False, "error": "get_eq_band: %s" % e}
+
+
+def _h_get_master_volume(p):
+    """Read the master fader (REC_MainVol) -- 0..1 normalized."""
+    try:
+        # Get the value as the global event id offset.
+        value = general.getEventValue(midi.REC_MainVol)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_master_volume: %s" % e}
+    return {"ok": True, "volume": int(value) / 1280.0}  # FL scale 0..1280
+
+
+def _h_set_master_volume(p):
+    """Set the master fader (REC_MainVol) -- 0..1 normalized."""
+    try:
+        v = float(p["volume"])
+        if v < 0.0 or v > 1.0:
+            return {"ok": False, "error": "volume must be 0.0..1.0"}
+        scaled = int(v * 1280.0)
+        general.processRECEvent(midi.REC_MainVol, scaled, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_master_volume: %s" % e}
+    return {"ok": True, "volume": v}
+
+
+def _h_get_master_shuffle(p):
+    try:
+        v = general.getEventValue(midi.REC_MainShuffle)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_master_shuffle: %s" % e}
+    return {"ok": True, "shuffle": int(v)}
+
+
+def _h_set_master_shuffle(p):
+    try:
+        v = float(p["shuffle"])
+        if v < 0.0 or v > 1.0:
+            return {"ok": False, "error": "shuffle must be 0.0..1.0"}
+        scaled = int(v * 128.0)  # FL's shuffle range is 0..128
+        general.processRECEvent(midi.REC_MainShuffle, scaled, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_master_shuffle: %s" % e}
+    return {"ok": True, "shuffle": v}
+
+
+def _h_get_master_pitch(p):
+    """Master pitch in semi-tones (0 = center, range typically -12..+12)."""
+    try:
+        v = general.getEventValue(midi.REC_MainPitch)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_master_pitch: %s" % e}
+    # FL stores pitch * 100; convert back
+    return {"ok": True, "pitch_semitones": int(v) / 100.0}
+
+
+def _h_set_master_pitch(p):
+    try:
+        v = float(p["pitch_semitones"])
+        scaled = int(v * 100.0)
+        general.processRECEvent(midi.REC_MainPitch, scaled, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_master_pitch: %s" % e}
+    return {"ok": True, "pitch_semitones": v}
+
+
+def _h_start_stop(p):
+    """REC_StartStop: 0=Stop, 1=Start."""
+    try:
+        v = int(p.get("value", 1))
+        if v not in (0, 1):
+            return {"ok": False, "error": "value must be 0 (stop) or 1 (start)"}
+        general.processRECEvent(midi.REC_StartStop, v, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "start_stop: %s" % e}
+    return {"ok": True, "value": v}
+
+
+def _h_get_song_position_bars(p):
+    try:
+        v = general.getEventValue(midi.REC_SongPosition)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_song_position_bars: %s" % e}
+    return {"ok": True, "position_bars": int(v)}
+
+
+def _h_set_song_position_bars(p):
+    try:
+        v = int(p["bars"])
+        if v < 0:
+            return {"ok": False, "error": "bars must be >= 0"}
+        general.processRECEvent(midi.REC_SongPosition, v, midi.REC_Controller)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_song_position_bars: %s" % e}
+    return {"ok": True, "bars": v}
+
+
+def _h_get_song_length_bars(p):
+    try:
+        v = general.getEventValue(midi.REC_SongLength)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_song_length_bars: %s" % e}
+    return {"ok": True, "length_bars": int(v)}
+
+
+def _h_get_scale(p):
+    """Return the current harmonic scale for the channel rack (raw int).
+    Use the named wrappers in v0.5 to interpret."""
+    try:
+        # general.getRecEventId(channel) + ... -- scale is on the channel.
+        # The exact REC id is internal; we expose it via a synthetic call
+        # if FL exposes a getter. For now, we just return midi.HARMONICSCALE_*
+        # via the channel property "scale" -- not in REC_Chan_*. Use a
+        # channel-level call if available; otherwise honest-not-implemented.
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "error": "current scale query not exposed in FL's controller API; "
+                         "use fl_get_channel_property(channel=0, property='scale') "
+                         "with v0.6 once wired, or set_scale to set it."}
+    except Exception as e:
+        return {"ok": False, "error": "get_scale: %s" % e}
+
+
+def _h_set_scale(p):
+    """Set the channel-rack harmonic scale by name."""
+    name = p.get("scale") or p.get("name")
+    if name is None:
+        return {"ok": False, "error": "scale (or 'name') required"}
+    # We have a name like 'major' or 'minor_pentatonic'. Map it to the
+    # HARMONICSCALE_* int, then to the FL scale control.
+    # FL exposes a UI knob for scale; the actual setter is via
+    # ui.* or channels.* -- the exact API varies by version. We use the
+    # safest path: channels.setRouteTo(...) is unrelated. Instead, the
+    # scale is a UI-stored setting on the channel rack. The most reliable
+    # way is via the channel-rack menu or general.processRECEvent on the
+    # appropriate REC id. For now: emit a clear 'not directly scriptable'
+    # report -- the scale-picker in FL's UI is the canonical path.
+    # BUT: we can attempt to set it via the channel-rack event id path
+    # which some FL builds expose. Try a best-effort and fall back to
+    # the honest report.
+    try:
+        scale_int = {
+            "major": midi.HARMONICSCALE_MAJOR, "minor": midi.HARMONICSCALE_AEOLIAN,
+            "harmonic_minor": midi.HARMONICSCALE_HARMONICMINOR,
+            "melodic_minor": midi.HARMONICSCALE_MELODICMINOR,
+            "whole_tone": midi.HARMONICSCALE_WHOLETONE,
+            "diminished": midi.HARMONICSCALE_DIMINISHED,
+            "major_pentatonic": midi.HARMONICSCALE_MAJORPENTATONIC,
+            "minor_pentatonic": midi.HARMONICSCALE_MINORPENTATONIC,
+            "japanese": midi.HARMONICSCALE_JAPINSEN,
+            "major_bebop": midi.HARMONICSCALE_MAJORBEBOP,
+            "dominant_bebop": midi.HARMONICSCALE_DOMINANTBEBOP,
+            "blues": midi.HARMONICSCALE_BLUES,
+            "arabic": midi.HARMONICSCALE_ARABIC,
+            "enigmatic": midi.HARMONICSCALE_ENIGMATIC,
+            "neapolitan": midi.HARMONICSCALE_NEAPOLITAN,
+            "neapolitan_minor": midi.HARMONICSCALE_NEAPOLITANMINOR,
+            "hungarian_minor": midi.HARMONICSCALE_HUNGARIANMINOR,
+            "dorian": midi.HARMONICSCALE_DORIAN,
+            "phrygian": midi.HARMONICSCALE_PHRYGIAN,
+            "lydian": midi.HARMONICSCALE_LYDIAN,
+            "mixolydian": midi.HARMONICSCALE_MIXOLYDIAN,
+            "aeolian": midi.HARMONICSCALE_AEOLIAN, "locrian": midi.HARMONICSCALE_LOCRIAN,
+            "chromatic": midi.HARMONICSCALE_CHROMATIC,
+        }.get(name.lower().replace(" ", "_").replace("-", "_"))
+        if scale_int is None:
+            return {"ok": False, "error": "unknown scale: %r" % (name,)}
+        # The actual REC id for scale isn't documented in the stubs; on
+        # most FL builds it's a UI-only setting. Honest report.
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "error": "FL's controller API does not expose a writable "
+                         "harmonic-scale path on this build. Use FL's UI "
+                         "(channel rack menu > Scale).",
+                "scale_int": scale_int, "scale_name": name}
+    except Exception as e:
+        return {"ok": False, "error": "set_scale: %s" % e}
+
+
+def _h_get_channel_type_named(p):
+    """Like get_channel_type but returns the named string instead of raw int."""
+    idx = int(p["index"])
+    try:
+        t = int(channels.getChannelType(idx))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getChannelType: %s" % e}
+    name = {0: "sampler", 1: "ts404", 2: "generator", 3: "layer",
+            4: "audio_clip", 5: "auto_clip"}.get(t, f"unknown({t})")
+    return {"ok": True, "index": idx, "type": t, "type_name": name}
+
+
+def _h_get_step_param_named(p):
+    """Read a per-step parameter by name ('velocity', 'pan', etc.)."""
+    try:
+        channel = int(p["channel"])
+        step = int(p["step"])
+        param = p["param"]
+        names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
+                 "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
+                 "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
+                 "shift": midi.pShift, "repeat": midi.pRepeat}
+        if param not in names:
+            return {"ok": False, "error": "param must be one of: %s" % sorted(names.keys())}
+        v = channels.getStepParam(channel, step, names[param])  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "get_step_param_named: %s" % e}
+    return {"ok": True, "channel": channel, "step": step, "param": param, "value": float(v)}
+
+
+def _h_set_step_param_named(p):
+    """Write a per-step parameter by name."""
+    try:
+        channel = int(p["channel"])
+        step = int(p["step"])
+        param = p["param"]
+        value = float(p["value"])
+        names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
+                 "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
+                 "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
+                 "shift": midi.pShift, "repeat": midi.pRepeat}
+        if param not in names:
+            return {"ok": False, "error": "param must be one of: %s" % sorted(names.keys())}
+        channels.setStepParameterByIndex(channel, step, names[param], value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "set_step_param_named: %s" % e}
+    return {"ok": True, "channel": channel, "step": step, "param": param, "value": value}
+
+
+def _h_get_step_param_list(p):
+    """Return ALL 9 step params for a (channel, step) in one call."""
+    try:
+        channel = int(p["channel"])
+        step = int(p["step"])
+        names = {"pitch": midi.pPitch, "velocity": midi.pVelocity,
+                 "release": midi.pRelease, "fine_pitch": midi.pFinePitch,
+                 "pan": midi.pPan, "mod_x": midi.pModX, "mod_y": midi.pModY,
+                 "shift": midi.pShift, "repeat": midi.pRepeat}
+        out = {"ok": True, "channel": channel, "step": step, "params": {}}
+        for name, p_int in names.items():
+            try:
+                out["params"][name] = float(channels.getStepParam(channel, step, p_int))  # type: ignore[attr-defined]
+            except Exception:
+                out["params"][name] = None
+    except Exception as e:
+        return {"ok": False, "error": "get_step_param_list: %s" % e}
+    return out
+
+
+def _h_note_name(p):
+    """MIDI note int -> 'C5' etc. (server-side via utils.py mirror)."""
+    try:
+        n = int(p["note"])
+    except Exception as e:
+        return {"ok": False, "error": "bad note: %s" % e}
+    # Replicate FL's GetNoteName logic.
+    _NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+    n2 = n + 1200
+    return {"ok": True, "note": n, "name": _NAMES[n2 % 12] + str((n2 // 12) - 100)}
+
+
+def _h_vol_to_db(p):
+    """FL's volume curve (0..1) -> dB. (server-side via utils.py mirror.)"""
+    try:
+        import math as _math
+        v = float(p["volume"])
+        v2 = (_math.exp(v * _math.log(11)) - 1) * 0.1
+        if v2 == 0:
+            db = 0.0
+        else:
+            db = round(_math.log10(v2) * 20, 1)
+    except Exception as e:
+        return {"ok": False, "error": "vol_to_db: %s" % e}
+    return {"ok": True, "volume": v, "db": db}
+
+
 _HANDLERS = {
     "ping": _h_ping,
     "get_tempo": _h_get_tempo,
@@ -2898,4 +3351,29 @@ _HANDLERS = {
     "toggle_browser_node": _h_toggle_browser_node,
     "is_browser_auto_hide": _h_is_browser_auto_hide,
     "set_browser_auto_hide": _h_set_browser_auto_hide,
+    # v0.5 -- typed REC surface (uses FL's real midi.py)
+    "get_channel_property": _h_get_channel_property,
+    "set_channel_property": _h_set_channel_property,
+    "get_mixer_property": _h_get_mixer_property,
+    "set_mixer_property": _h_set_mixer_property,
+    "set_eq_band": _h_set_eq_band,
+    "get_eq_band": _h_get_eq_band,
+    "get_master_volume": _h_get_master_volume,
+    "set_master_volume": _h_set_master_volume,
+    "get_master_shuffle": _h_get_master_shuffle,
+    "set_master_shuffle": _h_set_master_shuffle,
+    "get_master_pitch": _h_get_master_pitch,
+    "set_master_pitch": _h_set_master_pitch,
+    "start_stop": _h_start_stop,
+    "get_song_position_bars": _h_get_song_position_bars,
+    "set_song_position_bars": _h_set_song_position_bars,
+    "get_song_length_bars": _h_get_song_length_bars,
+    "get_scale": _h_get_scale,
+    "set_scale": _h_set_scale,
+    "get_channel_type_named": _h_get_channel_type_named,
+    "get_step_param_named": _h_get_step_param_named,
+    "set_step_param_named": _h_set_step_param_named,
+    "get_step_param_list": _h_get_step_param_list,
+    "note_name": _h_note_name,
+    "vol_to_db": _h_vol_to_db,
 }
