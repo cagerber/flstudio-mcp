@@ -1346,13 +1346,61 @@ def _h_create_mixer_track(p):
 
 
 def _h_get_automation_info(p):
-    raise _ClientError("get_automation_info: not yet implemented in this controller build",
-                       code="not_implemented")
+    """FL's scripting API does NOT expose channel-rack automation on this
+    build (verified via api_probe -- channels has 54 public names; NONE of
+    them contain 'auto' as a substring). The step sequencer / grid bit
+    functions exist (getStepParam, getGridBit) but those are CHANNEL STEP
+    SEQUENCER data, not automation clips.
+
+    There is also no playlist-level automation API exposed to controller
+    scripts. FL automation is UI-driven (right-click a knob > 'Create
+    automation clip').
+
+    This command returns an honest not-implemented report listing what
+    IS scriptable and pointing the user at the UI workflow."""
+    ch_count = _safe(lambda: channels.channelCount())  # type: ignore[attr-defined]
+    pat_count = _safe(lambda: patterns.patternCount())  # type: ignore[attr-defined]
+    out = {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "track": p.get("track"),
+        "slot": p.get("slot"),
+        "channel_count": ch_count,
+        "pattern_count": pat_count,
+        "available_alternatives": (
+            "FL exposes the channel step sequencer / grid bit data via "
+            "channels.getStepParam + channels.getGridBit -- but that is "
+            "SEQUENCER data, not automation clips."
+        ),
+        "recommendation": (
+            "FL's scripting API does not expose automation clips (channel "
+            "rack or playlist). To create automation: right-click the knob "
+            "in FL > 'Create automation clip' (or use the playlist's "
+            "automation lane). To capture live automation: arm Touch in "
+            "the playlist toolbar."
+        ),
+    }
+    return out
 
 
 def _h_set_automation_point(p):
-    raise _ClientError("set_automation_point: not yet implemented in this controller build",
-                       code="not_implemented")
+    """Same API limitation as _h_get_automation_info. Accepts the same
+    params the user would intuitively want to pass so the response is
+    actionable."""
+    return {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "requested": {k: v for k, v in p.items()},  # echo back what was asked
+        "recommendation": (
+            "FL's scripting API does not expose automation clips. To set "
+            "an automation point: in FL, open the automation clip on the "
+            "playlist and add the point with the mouse. For automated "
+            "control of EXISTING channel-rack state, use the step sequencer "
+            "via channels.setGridBit + channels.setStepParameterByIndex."
+        ),
+    }
 
 
 _HANDLERS = {
