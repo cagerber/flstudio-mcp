@@ -113,13 +113,13 @@ CMD_CHANNEL_SELECT = "channel_select"
 # Patterns (Phase 3)
 CMD_PATTERN_LIST = "pattern_list"
 CMD_PATTERN_SELECT = "pattern_select"
-CMD_PATTERN_RENAME = "pattern_rename"
-CMD_PATTERN_GET_LENGTH = "pattern_get_length"
+CMD_PATTERN_RENAME = "pattern_rename"             # NOT YET IMPLEMENTED (no handler) -- reserved
+CMD_PATTERN_GET_LENGTH = "pattern_get_length"     # NOT YET IMPLEMENTED (no handler) -- reserved
 
 # Plugin params (Phase 1B)
 CMD_PLUGIN_LIST = "plugin_list"            # list plugins on a mixer track's slots
 CMD_PLUGIN_GET_PARAMS = "plugin_get_params"  # paginated param dump for one plugin
-CMD_PLUGIN_LIST_PARAMS = "plugin_list_params"
+CMD_PLUGIN_LIST_PARAMS = "plugin_list_params"   # NOT YET IMPLEMENTED (no handler) -- reserved
 CMD_PLUGIN_GET_PARAM = "plugin_get_param"
 CMD_PLUGIN_SET_PARAM = "plugin_set_param"
 
