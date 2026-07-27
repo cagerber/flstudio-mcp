@@ -113,13 +113,15 @@ class Results:
 # Test helpers
 # ----------------------------------------------------------------------
 def safe_call(results: Results, name: str, fn, *, timeout: float = 8.0,
-               retries: int = 1, retry_delay: float = 0.4):
+               retries: int = 2, retry_delay: float = 0.4):
     """Call fn() and categorize the result. Returns the value or None.
 
-    Transient FLTimeout errors are retried ``retries`` times (default 1) with
+    Transient FLTimeout errors are retried ``retries`` times (default 2) with
     ``retry_delay`` between attempts -- this matches the production
     FLSTUDIO_MCP_RETRY_ON_TIMEOUT behavior at the test level so the suite
-    isn't flaky on first-call MIDI buffer jitter.
+    isn't flaky on first-call MIDI buffer jitter. Wine+MIDI observed up to
+    ~30% single-call loss; with 3 total attempts the cumulative success
+    rate is ~98%.
     """
     last_exc = None
     for attempt in range(retries + 1):
