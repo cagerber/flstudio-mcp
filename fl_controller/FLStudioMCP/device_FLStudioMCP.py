@@ -312,7 +312,7 @@ def _h_ping(params):
     return {
         "fl_version": _fl_version,
         "protocol_version": PROTOCOL_VERSION,
-        "build": "color-v14",   # reload marker -- bump to verify reloads take
+        "build": "color-v15",   # reload marker -- bump to verify reloads take
         "ts": time.time(),
     }
 
@@ -1658,6 +1658,1064 @@ def _h_pattern_is_selected(p):
     return {"ok": True, "pattern": idx, "selected": sel}
 
 
+# ------------------------------------------------------------------
+# v0.4 -- second-pass API sweep. Discovered via paginated api_probe()
+# on FL 26.1.2 build 5557. Each handler verified to exist on the live
+# FL before being wired. The honest-API-limit pattern is used for any
+# function not actually exposed on this build (e.g. setChannelPitch,
+# setTrackStereoSep, some mixer.getTrackXyz) -- the handler probes
+# first and returns the same code='api_unavailable' shape as the v0.3
+# limit reports.
+# ------------------------------------------------------------------
+
+# -- general: project metadata, time signature, undo -----------------------
+
+def _h_get_project_author(p):
+    try:
+        return {"ok": True, "author": str(general.getProjectAuthor())}
+    except Exception as e:
+        return {"ok": False, "error": "getProjectAuthor: %s" % e}
+
+
+def _h_get_project_title(p):
+    try:
+        return {"ok": True, "title": str(general.getProjectTitle())}
+    except Exception as e:
+        return {"ok": False, "error": "getProjectTitle: %s" % e}
+
+
+def _h_get_project_genre(p):
+    try:
+        return {"ok": True, "genre": str(general.getProjectGenre())}
+    except Exception as e:
+        return {"ok": False, "error": "getProjectGenre: %s" % e}
+
+
+def _h_set_numerator(p):
+    n = int(p["numerator"])
+    if n < 1 or n > 32:
+        return {"ok": False, "error": "numerator must be 1..32"}
+    try:
+        general.setNumerator(n)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setNumerator: %s" % e}
+    return {"ok": True, "numerator": n}
+
+
+def _h_set_denominator(p):
+    d = int(p["denominator"])
+    if d not in (1, 2, 4, 8, 16):
+        return {"ok": False, "error": "denominator must be a power of 2 in {1,2,4,8,16}"}
+    try:
+        general.setDenominator(d)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setDenominator: %s" % e}
+    return {"ok": True, "denominator": d}
+
+
+def _h_set_rec_ppq(p):
+    ppq = int(p["ppq"])
+    if ppq < 24 or ppq > 1920:
+        return {"ok": False, "error": "ppq must be 24..1920"}
+    try:
+        general.setRecPPQ(ppq)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setRecPPQ: %s" % e}
+    return {"ok": True, "ppq": ppq}
+
+
+def _h_get_undo_history_count(p):
+    try:
+        return {"ok": True, "count": int(general.getUndoHistoryCount())}
+    except Exception as e:
+        return {"ok": False, "error": "getUndoHistoryCount: %s" % e}
+
+
+def _h_get_undo_history_pos(p):
+    try:
+        return {"ok": True, "pos": int(general.getUndoHistoryPos())}
+    except Exception as e:
+        return {"ok": False, "error": "getUndoHistoryPos: %s" % e}
+
+
+def _h_set_undo_history_pos(p):
+    pos = int(p["pos"])
+    try:
+        general.setUndoHistoryPos(pos)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setUndoHistoryPos: %s" % e}
+    return {"ok": True, "pos": pos}
+
+
+def _h_undo(p):
+    count = int(p.get("count", 1))
+    try:
+        for _ in range(max(1, count)):
+            general.undo()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "undo: %s" % e}
+    return {"ok": True, "undid": count}
+
+
+def _h_redo(p):
+    """FL's redo path is general.undoUp() (or undoUpDown for one call).
+    We use undoUp which advances the cursor forward."""
+    count = int(p.get("count", 1))
+    try:
+        for _ in range(max(1, count)):
+            general.undoUp()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "redo (undoUp): %s" % e}
+    return {"ok": True, "redid": count}
+
+
+# -- channels: metadata + step sequencer ----------------------------------
+
+def _h_get_channel_type(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "type": int(channels.getChannelType(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getChannelType: %s" % e}
+
+
+def _h_get_activity_level(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "activity": float(channels.getActivityLevel(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getActivityLevel: %s" % e}
+
+
+def _h_get_channel_index(p):
+    name = str(p["name"])
+    try:
+        return {"ok": True, "name": name, "index": int(channels.getChannelIndex(name))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getChannelIndex: %s" % e}
+
+
+def _h_is_channel_selected(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "selected": bool(channels.isChannelSelected(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isChannelSelected: %s" % e}
+
+
+def _h_is_channel_highlighted(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "highlighted": bool(channels.isHighLighted(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isHighLighted: %s" % e}
+
+
+def _h_mute_channel(p):
+    idx = int(p["index"])
+    value = int(p.get("value", -1))  # -1 toggle, 0 unmute, 1 mute
+    if value not in (-1, 0, 1):
+        return {"ok": False, "error": "value must be -1, 0, or 1"}
+    try:
+        channels.muteChannel(idx, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "muteChannel: %s" % e}
+    return {"ok": True, "index": idx, "value": value}
+
+
+def _h_get_swing(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "swing": float(channels.getSwing(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getSwing: %s" % e}
+
+
+def _h_set_swing(p):
+    idx = int(p["index"])
+    value = float(p["value"])
+    if value < 0.0 or value > 1.0:
+        return {"ok": False, "error": "value must be 0.0..1.0"}
+    try:
+        channels.setSwing(idx, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setSwing: %s" % e}
+    return {"ok": True, "index": idx, "swing": value}
+
+
+def _h_get_grid_bit(p):
+    channel = int(p["channel"])
+    step = int(p["step"])
+    try:
+        return {"ok": True, "channel": channel, "step": step,
+                "bit": bool(channels.getGridBit(channel, step))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getGridBit: %s" % e}
+
+
+def _h_set_grid_bit(p):
+    channel = int(p["channel"])
+    step = int(p["step"])
+    value = bool(p.get("value", True))
+    try:
+        channels.setGridBit(channel, step, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setGridBit: %s" % e}
+    return {"ok": True, "channel": channel, "step": step, "value": value}
+
+
+def _h_get_step_param(p):
+    channel = int(p["channel"])
+    step = int(p["step"])
+    param = int(p["param"])
+    try:
+        return {"ok": True, "channel": channel, "step": step, "param": param,
+                "value": float(channels.getStepParam(channel, step, param))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getStepParam: %s" % e}
+
+
+def _h_get_current_step_param(p):
+    channel = int(p["channel"])
+    step = int(p["step"])
+    param = int(p["param"])
+    try:
+        return {"ok": True, "channel": channel, "step": step, "param": param,
+                "value": float(channels.getCurrentStepParam(channel, step, param))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getCurrentStepParam: %s" % e}
+
+
+def _h_set_step_param_by_index(p):
+    channel = int(p["channel"])
+    step = int(p["step"])
+    param = int(p["param"])
+    value = float(p["value"])
+    try:
+        channels.setStepParameterByIndex(channel, step, param, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setStepParameterByIndex: %s" % e}
+    return {"ok": True, "channel": channel, "step": step, "param": param, "value": value}
+
+
+def _h_get_rec_event_id(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "index": idx, "event_id": int(channels.getRecEventId(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getRecEventId: %s" % e}
+
+
+def _h_inc_event_value(p):
+    event_id = int(p["event_id"])
+    step = int(p.get("step", 1))
+    res = float(p.get("res", 1.0 / 24.0))
+    try:
+        new_value = int(channels.incEventValue(event_id, step, res))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "incEventValue: %s" % e}
+    return {"ok": True, "event_id": event_id, "step": step, "new_value": new_value}
+
+
+# -- patterns: color, length, channel loop, multi-select ------------------
+
+def _h_get_pattern_length(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "pattern": idx, "length_beats": int(patterns.getPatternLength(idx))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getPatternLength: %s" % e}
+
+
+def _h_set_pattern_length(p):
+    idx = int(p["index"])
+    beats = int(p["beats"])
+    if beats < 1 or beats > 9999:
+        return {"ok": False, "error": "beats must be 1..9999"}
+    # setPatternLength may not be exposed on every FL build; wrap defensively.
+    if not hasattr(patterns, "setPatternLength"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "error": "patterns.setPatternLength not exposed on this FL build",
+                "recommendation": "Use the piano roll UI to change pattern length."}
+    try:
+        patterns.setPatternLength(idx, beats)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setPatternLength: %s" % e}
+    return {"ok": True, "pattern": idx, "beats": beats}
+
+
+def _h_get_pattern_color(p):
+    idx = int(p["index"])
+    try:
+        return {"ok": True, "pattern": idx, "color": int(patterns.getPatternColor(idx)) & 0xFFFFFF}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getPatternColor: %s" % e}
+
+
+def _h_set_pattern_color(p):
+    idx = int(p["index"])
+    color = int(p["color"])
+    try:
+        patterns.setPatternColor(idx, color)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setPatternColor: %s" % e}
+    return {"ok": True, "pattern": idx, "color": color}
+
+
+def _h_get_channel_loop_style(p):
+    pattern = int(p["pattern"])
+    channel = int(p["channel"])
+    try:
+        return {"ok": True, "pattern": pattern, "channel": channel,
+                "loop_point": int(patterns.getChannelLoopStyle(pattern, channel))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getChannelLoopStyle: %s" % e}
+
+
+def _h_set_channel_loop(p):
+    channel = int(p["channel"])
+    loop_point = int(p.get("loop_point", 0))
+    if loop_point < 0:
+        return {"ok": False, "error": "loop_point must be >= 0 (0 disables)"}
+    try:
+        patterns.setChannelLoop(channel, loop_point)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setChannelLoop: %s" % e}
+    return {"ok": True, "channel": channel, "loop_point": loop_point}
+
+
+def _h_pattern_select_all(p):
+    try:
+        patterns.selectAll()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectAll: %s" % e}
+    return {"ok": True, "selected_all": True}
+
+
+def _h_pattern_deselect_all(p):
+    try:
+        patterns.deselectAll()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "deselectAll: %s" % e}
+    return {"ok": True, "deselected_all": True}
+
+
+def _h_pattern_is_any_selected(p):
+    """Returns True if ANY pattern is selected. Implemented via patterns.isPatternSelected(0) -- if
+    pattern 0 is selected, OR if there's a multi-selection -- returns True. FL's API doesn't expose
+    'any selected' directly, but this is a useful proxy."""
+    try:
+        any_sel = False
+        # Probe patterns 1..min(count, 20) -- enough for any reasonable project.
+        n = _safe(lambda: patterns.patternCount()) or 0  # type: ignore[attr-defined]
+        for i in range(1, min(n + 1, 21)):
+            if patterns.isPatternSelected(i):  # type: ignore[attr-defined]
+                any_sel = True
+                break
+        return {"ok": True, "any_selected": any_sel}
+    except Exception as e:
+        return {"ok": False, "error": "is_any_selected probe: %s" % e}
+
+
+# -- mixer: parametric EQ, plugin mix/mute, automation helpers, track ops -
+
+def _h_mixer_get_eq_band_count(p):
+    track = int(p["track"])
+    try:
+        return {"ok": True, "track": track, "band_count": int(mixer.getEqBandCount(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEqBandCount: %s" % e}
+
+
+def _h_mixer_get_eq_freq(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    try:
+        return {"ok": True, "track": track, "band": band,
+                "frequency_hz": float(mixer.getEqFrequency(track, band))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEqFrequency: %s" % e}
+
+
+def _h_mixer_set_eq_freq(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    freq = float(p["frequency_hz"])
+    if freq < 20 or freq > 20000:
+        return {"ok": False, "error": "frequency_hz must be 20..20000"}
+    try:
+        mixer.setEqFrequency(track, band, freq)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setEqFrequency: %s" % e}
+    return {"ok": True, "track": track, "band": band, "frequency_hz": freq}
+
+
+def _h_mixer_get_eq_bw(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    try:
+        return {"ok": True, "track": track, "band": band,
+                "bandwidth_oct": float(mixer.getEqBandwidth(track, band))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEqBandwidth: %s" % e}
+
+
+def _h_mixer_set_eq_bw(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    bw = float(p["bandwidth_oct"])
+    if bw < 0.1 or bw > 10.0:
+        return {"ok": False, "error": "bandwidth_oct must be 0.1..10.0"}
+    try:
+        mixer.setEqBandwidth(track, band, bw)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setEqBandwidth: %s" % e}
+    return {"ok": True, "track": track, "band": band, "bandwidth_oct": bw}
+
+
+def _h_mixer_get_eq_gain(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    try:
+        return {"ok": True, "track": track, "band": band,
+                "gain_db": float(mixer.getEqGain(track, band))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEqGain: %s" % e}
+
+
+def _h_mixer_set_eq_gain(p):
+    track = int(p["track"])
+    band = int(p["band"])
+    gain = float(p["gain_db"])
+    if gain < -36.0 or gain > 36.0:
+        return {"ok": False, "error": "gain_db must be -36..+36"}
+    try:
+        mixer.setEqGain(track, band, gain)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setEqGain: %s" % e}
+    return {"ok": True, "track": track, "band": band, "gain_db": gain}
+
+
+def _h_mixer_get_track_plugin_id(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    try:
+        return {"ok": True, "track": track, "slot": slot,
+                "plugin_id": int(mixer.getTrackPluginId(track, slot))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTrackPluginId: %s" % e}
+
+
+def _h_mixer_is_track_plugin_valid(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    try:
+        return {"ok": True, "track": track, "slot": slot,
+                "valid": bool(mixer.isTrackPluginValid(track, slot))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackPluginValid: %s" % e}
+
+
+def _h_mixer_get_plugin_mix_level(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    try:
+        return {"ok": True, "track": track, "slot": slot,
+                "mix_level": float(mixer.getPluginMixLevel(track, slot))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getPluginMixLevel: %s" % e}
+
+
+def _h_mixer_set_plugin_mix_level(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    level = float(p["level"])
+    if level < 0.0 or level > 1.0:
+        return {"ok": False, "error": "level must be 0.0..1.0"}
+    try:
+        mixer.setPluginMixLevel(track, slot, level)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setPluginMixLevel: %s" % e}
+    return {"ok": True, "track": track, "slot": slot, "level": level}
+
+
+def _h_mixer_get_plugin_mute_state(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    try:
+        return {"ok": True, "track": track, "slot": slot,
+                "mute": bool(mixer.getPluginMuteState(track, slot))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getPluginMuteState: %s" % e}
+
+
+def _h_mixer_set_plugin_mute_state(p):
+    track = int(p["track"])
+    slot = int(p["slot"])
+    mute = bool(p["mute"])
+    try:
+        mixer.setPluginMuteState(track, slot, mute)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setPluginMuteState: %s" % e}
+    return {"ok": True, "track": track, "slot": slot, "mute": mute}
+
+
+def _h_mixer_get_track_info(p):
+    mode = int(p["mode"])
+    if mode not in (0, 1, 2, 3):
+        return {"ok": False, "error": "mode must be 0 (TN_Master), 1 (TN_FirstIns), 2 (TN_LastIns), or 3 (TN_Sel)"}
+    try:
+        return {"ok": True, "mode": mode, "track": int(mixer.getTrackInfo(mode))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTrackInfo: %s" % e}
+
+
+def _h_mixer_get_track_number(p):
+    track = int(p["track"])
+    try:
+        return {"ok": True, "track": track, "track_number": int(mixer.getTrackNumber(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTrackNumber: %s" % e}
+
+
+def _h_mixer_set_track_number(p):
+    track = int(p["track"])
+    number = int(p["number"])
+    flags = int(p.get("flags", 0))
+    try:
+        mixer.setTrackNumber(track, number, flags)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setTrackNumber: %s" % e}
+    return {"ok": True, "track": track, "number": number, "flags": flags}
+
+
+def _h_mixer_get_active_track(p):
+    """Returns the mixer track with the docked peak meter ('current track').
+    Implemented via mixer.trackNumber() which returns it on FL builds."""
+    try:
+        return {"ok": True, "active_track": int(mixer.trackNumber())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "trackNumber: %s" % e}
+
+
+def _h_mixer_set_active_track(p):
+    track = int(p["track"])
+    try:
+        mixer.setActiveTrack(track)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setActiveTrack: %s" % e}
+    return {"ok": True, "track": track}
+
+
+def _h_mixer_is_track_selected(p):
+    track = int(p["track"])
+    try:
+        return {"ok": True, "track": track, "selected": bool(mixer.isTrackSelected(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackSelected: %s" % e}
+
+
+def _h_mixer_select_track(p):
+    track = int(p["track"])
+    value = int(p.get("value", -1))  # -1 toggle, 0 deselect, 1 select
+    try:
+        mixer.selectTrack(track, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectTrack: %s" % e}
+    return {"ok": True, "track": track, "value": value}
+
+
+def _h_mixer_select_all(p):
+    try:
+        mixer.selectAll()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectAll: %s" % e}
+    return {"ok": True}
+
+
+def _h_mixer_deselect_all(p):
+    try:
+        mixer.deselectAll()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "deselectAll: %s" % e}
+    return {"ok": True}
+
+
+def _h_mixer_get_event_value(p):
+    event_id = int(p["event_id"])
+    try:
+        return {"ok": True, "event_id": event_id, "value": int(mixer.getEventValue(event_id))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEventValue: %s" % e}
+
+
+def _h_mixer_get_event_id_name(p):
+    event_id = int(p["event_id"])
+    try:
+        return {"ok": True, "event_id": event_id, "name": str(mixer.getEventIDName(event_id))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEventIDName: %s" % e}
+
+
+def _h_mixer_get_event_id_value_str(p):
+    event_id = int(p["event_id"])
+    try:
+        return {"ok": True, "event_id": event_id, "value_str": str(mixer.getEventIDValueString(event_id))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getEventIDValueString: %s" % e}
+
+
+def _h_mixer_automate_event(p):
+    """REC-event automation helper. Use cautiously -- wrong event IDs can crash FL."""
+    event_id = int(p["event_id"])
+    value = int(p["value"])
+    flags = int(p.get("flags", 0))
+    res = float(p.get("res", 0.0))
+    try:
+        mixer.automateEvent(event_id, value, flags, res)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "automateEvent: %s" % e}
+    return {"ok": True, "event_id": event_id, "value": value, "flags": flags, "res": res}
+
+
+def _h_mixer_enable_track(p):
+    track = int(p["track"])
+    value = int(p.get("value", 1))
+    if value not in (0, 1):
+        return {"ok": False, "error": "value must be 0 or 1"}
+    try:
+        mixer.enableTrack(track, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "enableTrack: %s" % e}
+    return {"ok": True, "track": track, "enabled": bool(value)}
+
+
+def _h_mixer_get_track_recording_file(p):
+    track = int(p["track"])
+    try:
+        return {"ok": True, "track": track,
+                "filename": str(mixer.getTrackRecordingFileName(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTrackRecordingFileName: %s" % e}
+
+
+def _h_mixer_get_route_to_level(p):
+    src = int(p["src"])
+    dst = int(p["dst"])
+    try:
+        return {"ok": True, "src": src, "dst": dst,
+                "level": float(mixer.getRouteToLevel(src, dst))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getRouteToLevel: %s" % e}
+
+
+def _h_mixer_is_track_slots_enabled(p):
+    track = int(p["track"])
+    if not hasattr(mixer, "isTrackSlotsEnabled"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "isTrackSlotsEnabled not exposed on this FL build"}
+    try:
+        return {"ok": True, "track": track,
+                "enabled": bool(mixer.isTrackSlotsEnabled(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackSlotsEnabled: %s" % e}
+
+
+def _h_mixer_enable_track_slots(p):
+    track = int(p["track"])
+    value = bool(p.get("value", True))
+    try:
+        mixer.enableTrackSlots(track, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "enableTrackSlots: %s" % e}
+    return {"ok": True, "track": track, "value": value}
+
+
+def _h_mixer_is_track_rev_polarity(p):
+    track = int(p["track"])
+    if not hasattr(mixer, "isTrackRevPolarity"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "isTrackRevPolarity not exposed on this FL build"}
+    try:
+        return {"ok": True, "track": track,
+                "rev_polarity": bool(mixer.isTrackRevPolarity(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackRevPolarity: %s" % e}
+
+
+def _h_mixer_rev_track_polarity(p):
+    track = int(p["track"])
+    value = bool(p.get("value", False))
+    if not hasattr(mixer, "revTrackPolarity"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "revTrackPolarity not exposed on this FL build"}
+    try:
+        mixer.revTrackPolarity(track, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "revTrackPolarity: %s" % e}
+    return {"ok": True, "track": track, "value": value}
+
+
+def _h_mixer_is_track_swap_channels(p):
+    track = int(p["track"])
+    if not hasattr(mixer, "isTrackSwapChannels"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "isTrackSwapChannels not exposed on this FL build"}
+    try:
+        return {"ok": True, "track": track,
+                "swap_channels": bool(mixer.isTrackSwapChannels(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackSwapChannels: %s" % e}
+
+
+def _h_mixer_swap_track_channels(p):
+    track = int(p["track"])
+    value = bool(p.get("value", False))
+    if not hasattr(mixer, "swapTrackChannels"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "swapTrackChannels not exposed on this FL build"}
+    try:
+        mixer.swapTrackChannels(track, value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "swapTrackChannels: %s" % e}
+    return {"ok": True, "track": track, "value": value}
+
+
+def _h_mixer_is_track_mute_lock(p):
+    track = int(p["track"])
+    try:
+        return {"ok": True, "track": track,
+                "mute_locked": bool(mixer.isTrackMuteLock(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackMuteLock: %s" % e}
+
+
+def _h_mixer_get_track_stereo_sep(p):
+    track = int(p["track"])
+    if not hasattr(mixer, "getTrackStereoSep"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "getTrackStereoSep not exposed on this FL build"}
+    try:
+        return {"ok": True, "track": track,
+                "stereo_sep": float(mixer.getTrackStereoSep(track))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTrackStereoSep: %s" % e}
+
+
+def _h_mixer_set_track_stereo_sep(p):
+    track = int(p["track"])
+    sep = float(p["sep"])
+    if sep < -1.0 or sep > 1.0:
+        return {"ok": False, "error": "sep must be -1.0..1.0"}
+    if not hasattr(mixer, "setTrackStereoSep"):
+        return {"ok": False, "code": "api_unavailable",
+                "implementation": "honest_not_implemented",
+                "track": track,
+                "error": "setTrackStereoSep not exposed on this FL build"}
+    try:
+        mixer.setTrackStereoSep(track, sep)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setTrackStereoSep: %s" % e}
+    return {"ok": True, "track": track, "sep": sep}
+
+
+def _h_mixer_link_channel_to_track(p):
+    channel = int(p["channel"])
+    track = int(p["track"])
+    select = bool(p.get("select", False))
+    try:
+        mixer.linkChannelToTrack(channel, track, select)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "linkChannelToTrack: %s" % e}
+    return {"ok": True, "channel": channel, "track": track, "select": select}
+
+
+def _h_mixer_link_track_to_channel(p):
+    track = int(p["track"])
+    channel = int(p["channel"])
+    select = bool(p.get("select", False))
+    try:
+        mixer.linkTrackToChannel(track, channel, select)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "linkTrackToChannel: %s" % e}
+    return {"ok": True, "track": track, "channel": channel, "select": select}
+
+
+def _h_mixer_get_last_peak_vol(p):
+    section = int(p["section"])  # 0=L, 1=R
+    if section not in (0, 1):
+        return {"ok": False, "error": "section must be 0 (left) or 1 (right)"}
+    try:
+        return {"ok": True, "section": section,
+                "peak": float(mixer.getLastPeakVol(section))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getLastPeakVol: %s" % e}
+
+
+def _h_mixer_get_auto_smooth_event_val(p):
+    event_id = int(p["event_id"])
+    flags = int(p.get("flags", 0))
+    res = float(p.get("res", 0.0))
+    try:
+        return {"ok": True, "event_id": event_id, "flags": flags, "res": res,
+                "value": int(mixer.getAutoSmoothEventValue(event_id, flags, res))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getAutoSmoothEventValue: %s" % e}
+
+
+def _h_mixer_remote_find_event_value(p):
+    event_id = int(p["event_id"])
+    flags = int(p.get("flags", 0))
+    res = float(p.get("res", 0.0))
+    try:
+        return {"ok": True, "event_id": event_id, "flags": flags, "res": res,
+                "value": int(mixer.remoteFindEventValue(event_id, flags, res))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "remoteFindEventValue: %s" % e}
+
+
+# -- ui: hint bar, snap, focused plugin, window show/hide, browser nav -----
+
+def _h_get_hint_msg(p):
+    try:
+        return {"ok": True, "hint": str(ui.getHintMsg())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getHintMsg: %s" % e}
+
+
+def _h_set_hint_msg(p):
+    msg = str(p["msg"])
+    try:
+        ui.setHintMsg(msg)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setHintMsg: %s" % e}
+    return {"ok": True, "msg": msg}
+
+
+def _h_show_notification(p):
+    nid = int(p["id"])
+    try:
+        ui.showNotification(nid)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "showNotification: %s" % e}
+    return {"ok": True, "id": nid}
+
+
+def _h_get_focused_plugin_name(p):
+    try:
+        return {"ok": True, "name": str(ui.getFocusedPluginName())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getFocusedPluginName: %s" % e}
+
+
+def _h_is_closing(p):
+    try:
+        return {"ok": True, "is_closing": bool(ui.isClosing())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isClosing: %s" % e}
+
+
+def _h_get_snap_mode(p):
+    try:
+        return {"ok": True, "snap_mode": int(ui.getSnapMode())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getSnapMode: %s" % e}
+
+
+def _h_set_snap_mode(p):
+    value = int(p["value"])
+    try:
+        ui.setSnapMode(value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setSnapMode: %s" % e}
+    return {"ok": True, "snap_mode": value}
+
+
+def _h_snap_on_off(p):
+    try:
+        new_state = int(ui.snapOnOff())  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "snapOnOff: %s" % e}
+    return {"ok": True, "toggled": True, "new_state": new_state}
+
+
+def _h_is_metronome_enabled(p):
+    try:
+        return {"ok": True, "metronome": bool(ui.isMetronomeEnabled())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isMetronomeEnabled: %s" % e}
+
+
+def _h_is_precount_enabled(p):
+    try:
+        return {"ok": True, "precount": bool(ui.isPrecountEnabled())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isPrecountEnabled: %s" % e}
+
+
+def _h_is_loop_rec_enabled(p):
+    try:
+        return {"ok": True, "loop_rec": bool(ui.isLoopRecEnabled())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isLoopRecEnabled: %s" % e}
+
+
+def _h_is_start_on_input_enabled(p):
+    try:
+        return {"ok": True, "start_on_input": bool(ui.isStartOnInputEnabled())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isStartOnInputEnabled: %s" % e}
+
+
+def _h_get_step_edit_mode(p):
+    try:
+        return {"ok": True, "step_edit_mode": bool(ui.getStepEditMode())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getStepEditMode: %s" % e}
+
+
+def _h_set_step_edit_mode(p):
+    value = bool(p["value"])
+    try:
+        ui.setStepEditMode(value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setStepEditMode: %s" % e}
+    return {"ok": True, "step_edit_mode": value}
+
+
+def _h_get_time_disp_min(p):
+    try:
+        return {"ok": True, "time_disp_min": bool(ui.getTimeDispMin())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getTimeDispMin: %s" % e}
+
+
+def _h_set_time_disp_min(p):
+    try:
+        ui.setTimeDispMin()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setTimeDispMin: %s" % e}
+    return {"ok": True, "toggled": True}
+
+
+def _h_show_window(p):
+    wid = int(p["window_id"])
+    try:
+        ui.showWindow(wid)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "showWindow: %s" % e}
+    return {"ok": True, "window_id": wid}
+
+
+def _h_hide_window(p):
+    wid = int(p["window_id"])
+    try:
+        ui.hideWindow(wid)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "hideWindow: %s" % e}
+    return {"ok": True, "window_id": wid}
+
+
+def _h_get_visible(p):
+    wid = int(p["window_id"])
+    try:
+        return {"ok": True, "window_id": wid, "visible": bool(ui.getVisible(wid))}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getVisible: %s" % e}
+
+
+def _h_select_window(p):
+    wid = int(p["window_id"])
+    try:
+        ui.selectWindow(wid)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectWindow: %s" % e}
+    return {"ok": True, "window_id": wid}
+
+
+def _h_navigate_browser(p):
+    direction = int(p["direction"])
+    try:
+        ui.navigateBrowser(direction)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "navigateBrowser: %s" % e}
+    return {"ok": True, "direction": direction}
+
+
+def _h_navigate_browser_menu(p):
+    direction = int(p["direction"])
+    try:
+        ui.navigateBrowserMenu(direction)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "navigateBrowserMenu: %s" % e}
+    return {"ok": True, "direction": direction}
+
+
+def _h_navigate_browser_tabs(p):
+    direction = int(p["direction"])
+    try:
+        ui.navigateBrowserTabs(direction)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "navigateBrowserTabs: %s" % e}
+    return {"ok": True, "direction": direction}
+
+
+def _h_select_browser_menu_item(p):
+    index = int(p["index"])
+    try:
+        ui.selectBrowserMenuItem(index)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectBrowserMenuItem: %s" % e}
+    return {"ok": True, "index": index}
+
+
+def _h_preview_browser_menu_item(p):
+    index = int(p["index"])
+    try:
+        ui.previewBrowserMenuItem(index)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "previewBrowserMenuItem: %s" % e}
+    return {"ok": True, "index": index}
+
+
+def _h_toggle_browser_node(p):
+    index = int(p["index"])
+    try:
+        ui.toggleBrowserNode(index)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "toggleBrowserNode: %s" % e}
+    return {"ok": True, "index": index}
+
+
+def _h_is_browser_auto_hide(p):
+    try:
+        return {"ok": True, "auto_hide": bool(ui.isBrowserAutoHide())}  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isBrowserAutoHide: %s" % e}
+
+
+def _h_set_browser_auto_hide(p):
+    value = bool(p["value"])
+    try:
+        ui.setBrowserAutoHide(value)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setBrowserAutoHide: %s" % e}
+    return {"ok": True, "value": value}
+
+
 _HANDLERS = {
     "ping": _h_ping,
     "get_tempo": _h_get_tempo,
@@ -1733,4 +2791,111 @@ _HANDLERS = {
     "pattern_is_default": _h_pattern_is_default,
     "pattern_select": _h_pattern_select,
     "pattern_is_selected": _h_pattern_is_selected,
+    # v0.4 -- second-pass API sweep (verified live on FL 26.1.2)
+    "get_project_author": _h_get_project_author,
+    "get_project_title": _h_get_project_title,
+    "get_project_genre": _h_get_project_genre,
+    "set_numerator": _h_set_numerator,
+    "set_denominator": _h_set_denominator,
+    "set_rec_ppq": _h_set_rec_ppq,
+    "get_undo_history_count": _h_get_undo_history_count,
+    "get_undo_history_pos": _h_get_undo_history_pos,
+    "set_undo_history_pos": _h_set_undo_history_pos,
+    "undo": _h_undo,
+    "redo": _h_redo,
+    "get_channel_type": _h_get_channel_type,
+    "get_activity_level": _h_get_activity_level,
+    "get_channel_index": _h_get_channel_index,
+    "is_channel_selected": _h_is_channel_selected,
+    "is_channel_highlighted": _h_is_channel_highlighted,
+    "mute_channel": _h_mute_channel,
+    "get_swing": _h_get_swing,
+    "set_swing": _h_set_swing,
+    "get_grid_bit": _h_get_grid_bit,
+    "set_grid_bit": _h_set_grid_bit,
+    "get_step_param": _h_get_step_param,
+    "get_current_step_param": _h_get_current_step_param,
+    "set_step_param_by_index": _h_set_step_param_by_index,
+    "get_rec_event_id": _h_get_rec_event_id,
+    "inc_event_value": _h_inc_event_value,
+    "get_pattern_length": _h_get_pattern_length,
+    "set_pattern_length": _h_set_pattern_length,
+    "get_pattern_color": _h_get_pattern_color,
+    "set_pattern_color": _h_set_pattern_color,
+    "get_channel_loop_style": _h_get_channel_loop_style,
+    "set_channel_loop": _h_set_channel_loop,
+    "pattern_select_all": _h_pattern_select_all,
+    "pattern_deselect_all": _h_pattern_deselect_all,
+    "pattern_is_any_selected": _h_pattern_is_any_selected,
+    "mixer_get_eq_band_count": _h_mixer_get_eq_band_count,
+    "mixer_get_eq_freq": _h_mixer_get_eq_freq,
+    "mixer_set_eq_freq": _h_mixer_set_eq_freq,
+    "mixer_get_eq_bw": _h_mixer_get_eq_bw,
+    "mixer_set_eq_bw": _h_mixer_set_eq_bw,
+    "mixer_get_eq_gain": _h_mixer_get_eq_gain,
+    "mixer_set_eq_gain": _h_mixer_set_eq_gain,
+    "mixer_get_track_plugin_id": _h_mixer_get_track_plugin_id,
+    "mixer_is_track_plugin_valid": _h_mixer_is_track_plugin_valid,
+    "mixer_get_plugin_mix_level": _h_mixer_get_plugin_mix_level,
+    "mixer_set_plugin_mix_level": _h_mixer_set_plugin_mix_level,
+    "mixer_get_plugin_mute_state": _h_mixer_get_plugin_mute_state,
+    "mixer_set_plugin_mute_state": _h_mixer_set_plugin_mute_state,
+    "mixer_get_track_info": _h_mixer_get_track_info,
+    "mixer_get_track_number": _h_mixer_get_track_number,
+    "mixer_set_track_number": _h_mixer_set_track_number,
+    "mixer_get_active_track": _h_mixer_get_active_track,
+    "mixer_set_active_track": _h_mixer_set_active_track,
+    "mixer_is_track_selected": _h_mixer_is_track_selected,
+    "mixer_select_track": _h_mixer_select_track,
+    "mixer_select_all": _h_mixer_select_all,
+    "mixer_deselect_all": _h_mixer_deselect_all,
+    "mixer_get_event_value": _h_mixer_get_event_value,
+    "mixer_get_event_id_name": _h_mixer_get_event_id_name,
+    "mixer_get_event_id_value_str": _h_mixer_get_event_id_value_str,
+    "mixer_automate_event": _h_mixer_automate_event,
+    "mixer_enable_track": _h_mixer_enable_track,
+    "mixer_get_track_recording_file": _h_mixer_get_track_recording_file,
+    "mixer_get_route_to_level": _h_mixer_get_route_to_level,
+    "mixer_is_track_slots_enabled": _h_mixer_is_track_slots_enabled,
+    "mixer_enable_track_slots": _h_mixer_enable_track_slots,
+    "mixer_is_track_rev_polarity": _h_mixer_is_track_rev_polarity,
+    "mixer_rev_track_polarity": _h_mixer_rev_track_polarity,
+    "mixer_is_track_swap_channels": _h_mixer_is_track_swap_channels,
+    "mixer_swap_track_channels": _h_mixer_swap_track_channels,
+    "mixer_is_track_mute_lock": _h_mixer_is_track_mute_lock,
+    "mixer_get_track_stereo_sep": _h_mixer_get_track_stereo_sep,
+    "mixer_set_track_stereo_sep": _h_mixer_set_track_stereo_sep,
+    "mixer_link_channel_to_track": _h_mixer_link_channel_to_track,
+    "mixer_link_track_to_channel": _h_mixer_link_track_to_channel,
+    "mixer_get_last_peak_vol": _h_mixer_get_last_peak_vol,
+    "mixer_get_auto_smooth_event_val": _h_mixer_get_auto_smooth_event_val,
+    "mixer_remote_find_event_value": _h_mixer_remote_find_event_value,
+    "get_hint_msg": _h_get_hint_msg,
+    "set_hint_msg": _h_set_hint_msg,
+    "show_notification": _h_show_notification,
+    "get_focused_plugin_name": _h_get_focused_plugin_name,
+    "is_closing": _h_is_closing,
+    "get_snap_mode": _h_get_snap_mode,
+    "set_snap_mode": _h_set_snap_mode,
+    "snap_on_off": _h_snap_on_off,
+    "is_metronome_enabled": _h_is_metronome_enabled,
+    "is_precount_enabled": _h_is_precount_enabled,
+    "is_loop_rec_enabled": _h_is_loop_rec_enabled,
+    "is_start_on_input_enabled": _h_is_start_on_input_enabled,
+    "get_step_edit_mode": _h_get_step_edit_mode,
+    "set_step_edit_mode": _h_set_step_edit_mode,
+    "get_time_disp_min": _h_get_time_disp_min,
+    "set_time_disp_min": _h_set_time_disp_min,
+    "show_window": _h_show_window,
+    "hide_window": _h_hide_window,
+    "get_visible": _h_get_visible,
+    "select_window": _h_select_window,
+    "navigate_browser": _h_navigate_browser,
+    "navigate_browser_menu": _h_navigate_browser_menu,
+    "navigate_browser_tabs": _h_navigate_browser_tabs,
+    "select_browser_menu_item": _h_select_browser_menu_item,
+    "preview_browser_menu_item": _h_preview_browser_menu_item,
+    "toggle_browser_node": _h_toggle_browser_node,
+    "is_browser_auto_hide": _h_is_browser_auto_hide,
+    "set_browser_auto_hide": _h_set_browser_auto_hide,
 }

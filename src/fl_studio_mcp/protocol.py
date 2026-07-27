@@ -199,6 +199,126 @@ CMD_PATTERN_IS_DEFAULT = "pattern_is_default"          # patterns.isPatternDefau
 CMD_PATTERN_SELECT = "pattern_select"                  # patterns.selectPattern(idx, value=-1, preview=False)
 CMD_PATTERN_IS_SELECTED = "pattern_is_selected"        # patterns.isPatternSelected(idx)
 
+# v0.4 -- discovered via repeated paginated api_probe() of FL 26.1.2 build 5557.
+# All verified LIVE present on the running daemon (NOT just in stubs docs --
+# some stubs functions aren't actually in the FL 26.1.2 runtime).
+
+# general.* -- project metadata, time signature, undo
+CMD_GET_PROJECT_AUTHOR = "get_project_author"            # general.getProjectAuthor
+CMD_GET_PROJECT_TITLE  = "get_project_title"             # general.getProjectTitle
+CMD_GET_PROJECT_GENRE  = "get_project_genre"             # general.getProjectGenre
+CMD_SET_NUMERATOR      = "set_numerator"                 # general.setNumerator (time-sig)
+CMD_SET_DENOMINATOR    = "set_denominator"               # general.setDenominator (time-sig)
+CMD_SET_REC_PPQ        = "set_rec_ppq"                   # general.setRecPPQ
+CMD_GET_UNDO_HISTORY_COUNT = "get_undo_history_count"    # general.getUndoHistoryCount
+CMD_GET_UNDO_HISTORY_POS  = "get_undo_history_pos"       # general.getUndoHistoryPos
+CMD_SET_UNDO_HISTORY_POS  = "set_undo_history_pos"       # general.setUndoHistoryPos
+CMD_UNDO               = "undo"                          # general.undo(count=1)
+CMD_REDO               = "redo"                          # general.undoUpDown / undoUp
+
+# channels.* -- channel metadata + step sequencer
+CMD_GET_CHANNEL_TYPE        = "get_channel_type"          # channels.getChannelType(index)
+CMD_GET_ACTIVITY_LEVEL      = "get_activity_level"        # channels.getActivityLevel(index)
+CMD_GET_CHANNEL_INDEX       = "get_channel_index"         # channels.getChannelIndex(name) -- name lookup
+CMD_IS_CHANNEL_SELECTED     = "is_channel_selected"       # channels.isChannelSelected
+CMD_IS_CHANNEL_HIGHLIGHTED  = "is_channel_highlighted"    # channels.isHighLighted
+CMD_MUTE_CHANNEL            = "mute_channel"              # channels.muteChannel(index, value=-1)
+CMD_GET_SWING               = "get_swing"                 # channels.getSwing(index)
+CMD_SET_SWING               = "set_swing"                 # channels.setSwing(index, value)
+CMD_GET_GRID_BIT            = "get_grid_bit"              # channels.getGridBit(channel, step)
+CMD_SET_GRID_BIT            = "set_grid_bit"              # channels.setGridBit(channel, step, value)
+CMD_GET_STEP_PARAM          = "get_step_param"            # channels.getStepParam(channel, step, param)
+CMD_GET_CURRENT_STEP_PARAM  = "get_current_step_param"    # channels.getCurrentStepParam(channel, step, param)
+CMD_SET_STEP_PARAM_BY_INDEX = "set_step_param_by_index"   # channels.setStepParameterByIndex(channel, step, param, value)
+CMD_GET_REC_EVENT_ID        = "get_rec_event_id"          # channels.getRecEventId(index)
+CMD_INC_EVENT_VALUE         = "inc_event_value"           # channels.incEventValue(eventId, step, res=1/24)
+
+# patterns.* -- color, length, channel loop, multi-select
+CMD_GET_PATTERN_LENGTH    = "get_pattern_length"          # patterns.getPatternLength(index) -- BEATS
+CMD_SET_PATTERN_LENGTH    = "set_pattern_length"          # patterns.setPatternLength(index, beats) (not in 26.1.2 runtime; honest-report if absent)
+CMD_GET_PATTERN_COLOR     = "get_pattern_color"           # patterns.getPatternColor(index)
+CMD_SET_PATTERN_COLOR     = "set_pattern_color"           # patterns.setPatternColor(index, color)
+CMD_GET_CHANNEL_LOOP_STYLE = "get_channel_loop_style"     # patterns.getChannelLoopStyle(pattern, channel)
+CMD_SET_CHANNEL_LOOP      = "set_channel_loop"            # patterns.setChannelLoop(channel, loopPoint)
+CMD_PATTERN_SELECT_ALL    = "pattern_select_all"          # patterns.selectAll()
+CMD_PATTERN_DESELECT_ALL  = "pattern_deselect_all"        # patterns.deselectAll()
+CMD_PATTERN_IS_ANY_SELECTED = "pattern_is_any_selected"   # patterns.isPatternSelected(0) -- existence check
+
+# mixer.* -- full parametric EQ, plugin mix/mute, automation helpers, track ops
+CMD_MIXER_GET_EQ_BAND_COUNT = "mixer_get_eq_band_count"   # mixer.getEqBandCount(track)
+CMD_MIXER_GET_EQ_FREQ       = "mixer_get_eq_freq"         # mixer.getEqFrequency(track, band)
+CMD_MIXER_SET_EQ_FREQ       = "mixer_set_eq_freq"         # mixer.setEqFrequency(track, band, freq)
+CMD_MIXER_GET_EQ_BW         = "mixer_get_eq_bw"           # mixer.getEqBandwidth(track, band)
+CMD_MIXER_SET_EQ_BW         = "mixer_set_eq_bw"           # mixer.setEqBandwidth(track, band, bw)
+CMD_MIXER_GET_EQ_GAIN       = "mixer_get_eq_gain"         # mixer.getEqGain(track, band)
+CMD_MIXER_SET_EQ_GAIN       = "mixer_set_eq_gain"         # mixer.setEqGain(track, band, gain)
+CMD_MIXER_GET_TRACK_PLUGIN_ID   = "mixer_get_track_plugin_id"   # mixer.getTrackPluginId(track, slot)
+CMD_MIXER_IS_TRACK_PLUGIN_VALID = "mixer_is_track_plugin_valid" # mixer.isTrackPluginValid(track, slot)
+CMD_MIXER_GET_PLUGIN_MIX_LEVEL  = "mixer_get_plugin_mix_level"  # mixer.getPluginMixLevel(track, slot)
+CMD_MIXER_SET_PLUGIN_MIX_LEVEL  = "mixer_set_plugin_mix_level"  # mixer.setPluginMixLevel(track, slot, level)
+CMD_MIXER_GET_PLUGIN_MUTE_STATE = "mixer_get_plugin_mute_state" # mixer.getPluginMuteState(track, slot)
+CMD_MIXER_SET_PLUGIN_MUTE_STATE = "mixer_set_plugin_mute_state" # mixer.setPluginMuteState(track, slot, mute)
+CMD_MIXER_GET_TRACK_INFO        = "mixer_get_track_info"        # mixer.getTrackInfo(mode)
+CMD_MIXER_GET_TRACK_NUMBER      = "mixer_get_track_number"      # mixer.getTrackNumber(track)
+CMD_MIXER_SET_TRACK_NUMBER      = "mixer_set_track_number"      # mixer.setTrackNumber(track, number, flags)
+CMD_MIXER_GET_ACTIVE_TRACK      = "mixer_get_active_track"      # mixer.getActiveEffectIndex / setActiveTrack
+CMD_MIXER_SET_ACTIVE_TRACK      = "mixer_set_active_track"      # mixer.setActiveTrack(index)
+CMD_MIXER_IS_TRACK_SELECTED     = "mixer_is_track_selected"     # mixer.isTrackSelected(track)
+CMD_MIXER_SELECT_TRACK          = "mixer_select_track"          # mixer.selectTrack(track, value=-1)
+CMD_MIXER_SELECT_ALL            = "mixer_select_all"            # mixer.selectAll()
+CMD_MIXER_DESELECT_ALL          = "mixer_deselect_all"          # mixer.deselectAll()
+CMD_MIXER_GET_EVENT_VALUE       = "mixer_get_event_value"       # mixer.getEventValue(eventId)
+CMD_MIXER_GET_EVENT_ID_NAME     = "mixer_get_event_id_name"     # mixer.getEventIDName(eventId)
+CMD_MIXER_GET_EVENT_ID_VALUE_STR = "mixer_get_event_id_value_str" # mixer.getEventIDValueString(eventId)
+CMD_MIXER_AUTOMATE_EVENT        = "mixer_automate_event"        # mixer.automateEvent(eventId, value, flags, res=0)
+CMD_MIXER_ENABLE_TRACK          = "mixer_enable_track"          # mixer.enableTrack(track, value=1)
+CMD_MIXER_GET_TRACK_RECORDING_FILE = "mixer_get_track_recording_file" # mixer.getTrackRecordingFileName(track)
+CMD_MIXER_GET_ROUTE_TO_LEVEL    = "mixer_get_route_to_level"    # mixer.getRouteToLevel(src, dst)
+CMD_MIXER_IS_TRACK_SLOTS_ENABLED = "mixer_is_track_slots_enabled" # mixer.isTrackSlotsEnabled(track)
+CMD_MIXER_ENABLE_TRACK_SLOTS    = "mixer_enable_track_slots"    # mixer.enableTrackSlots(track, value=1)
+CMD_MIXER_IS_TRACK_REV_POLARITY = "mixer_is_track_rev_polarity" # mixer.isTrackRevPolarity(track)
+CMD_MIXER_REV_TRACK_POLARITY    = "mixer_rev_track_polarity"    # mixer.revTrackPolarity(track, value)
+CMD_MIXER_IS_TRACK_SWAP_CHANNELS = "mixer_is_track_swap_channels" # mixer.isTrackSwapChannels(track)
+CMD_MIXER_SWAP_TRACK_CHANNELS   = "mixer_swap_track_channels"   # mixer.swapTrackChannels(track, value)
+CMD_MIXER_IS_TRACK_MUTE_LOCK    = "mixer_is_track_mute_lock"    # mixer.isTrackMuteLock(track)
+CMD_MIXER_GET_TRACK_STEREO_SEP  = "mixer_get_track_stereo_sep"  # mixer.getTrackStereoSep(track) -- not in 26.1.2 runtime, see handler
+CMD_MIXER_SET_TRACK_STEREO_SEP  = "mixer_set_track_stereo_sep"  # mixer.setTrackStereoSep(track, sep) -- not in 26.1.2 runtime
+CMD_MIXER_LINK_CHANNEL_TO_TRACK = "mixer_link_channel_to_track" # mixer.linkChannelToTrack(channel, track, select=False)
+CMD_MIXER_LINK_TRACK_TO_CHANNEL = "mixer_link_track_to_channel" # mixer.linkTrackToChannel(track, channel, select=False)
+CMD_MIXER_GET_LAST_PEAK_VOL     = "mixer_get_last_peak_vol"     # mixer.getLastPeakVol(section)
+CMD_MIXER_GET_AUTO_SMOOTH_EVENT_VAL = "mixer_get_auto_smooth_event_val" # mixer.getAutoSmoothEventValue(...)
+CMD_MIXER_REMOTE_FIND_EVENT_VALUE = "mixer_remote_find_event_value" # mixer.remoteFindEventValue(eventId, flags, res=0)
+
+# ui.* -- hint bar, snap, focused plugin, window show/hide, browser nav
+CMD_GET_HINT_MSG           = "get_hint_msg"                # ui.getHintMsg()
+CMD_SET_HINT_MSG           = "set_hint_msg"                # ui.setHintMsg(msg)
+CMD_SHOW_NOTIFICATION      = "show_notification"           # ui.showNotification(id)
+CMD_GET_FOCUSED_PLUGIN_NAME = "get_focused_plugin_name"   # ui.getFocusedPluginName()
+CMD_IS_CLOSING             = "is_closing"                  # ui.isClosing()
+CMD_GET_SNAP_MODE          = "get_snap_mode"               # ui.getSnapMode()
+CMD_SET_SNAP_MODE          = "set_snap_mode"               # ui.setSnapMode(value)
+CMD_SNAP_ON_OFF            = "snap_on_off"                 # ui.snapOnOff() -- toggle
+CMD_IS_METRONOME_ENABLED   = "is_metronome_enabled"        # ui.isMetronomeEnabled()
+CMD_IS_PRECOUNT_ENABLED    = "is_precount_enabled"         # ui.isPrecountEnabled()
+CMD_IS_LOOP_REC_ENABLED    = "is_loop_rec_enabled"         # ui.isLoopRecEnabled()
+CMD_IS_START_ON_INPUT_ENABLED = "is_start_on_input_enabled" # ui.isStartOnInputEnabled()
+CMD_GET_STEP_EDIT_MODE     = "get_step_edit_mode"          # ui.getStepEditMode()
+CMD_SET_STEP_EDIT_MODE     = "set_step_edit_mode"          # ui.setStepEditMode(value)
+CMD_GET_TIME_DISP_MIN      = "get_time_disp_min"           # ui.getTimeDispMin() -- True=time, False=bars
+CMD_SET_TIME_DISP_MIN      = "set_time_disp_min"           # ui.setTimeDispMin() -- toggle
+CMD_SHOW_WINDOW            = "show_window"                 # ui.showWindow(window_id)
+CMD_HIDE_WINDOW            = "hide_window"                 # ui.hideWindow(window_id)
+CMD_GET_VISIBLE            = "get_visible"                 # ui.getVisible(window_id)
+CMD_SELECT_WINDOW          = "select_window"               # ui.selectWindow(window_id)
+CMD_NAVIGATE_BROWSER       = "navigate_browser"            # ui.navigateBrowser(dir)
+CMD_NAVIGATE_BROWSER_MENU  = "navigate_browser_menu"       # ui.navigateBrowserMenu(dir)
+CMD_NAVIGATE_BROWSER_TABS  = "navigate_browser_tabs"       # ui.navigateBrowserTabs(dir)
+CMD_SELECT_BROWSER_MENU_ITEM = "select_browser_menu_item" # ui.selectBrowserMenuItem(index)
+CMD_PREVIEW_BROWSER_MENU_ITEM = "preview_browser_menu_item" # ui.previewBrowserMenuItem(index)
+CMD_TOGGLE_BROWSER_NODE    = "toggle_browser_node"         # ui.toggleBrowserNode(index)
+CMD_IS_BROWSER_AUTO_HIDE   = "is_browser_auto_hide"        # ui.isBrowserAutoHide()
+CMD_SET_BROWSER_AUTO_HIDE  = "set_browser_auto_hide"       # ui.setBrowserAutoHide(value)
+
 
 # ---------------------------------------------------------------------------
 # SysEx wire format

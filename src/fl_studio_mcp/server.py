@@ -30,13 +30,17 @@ from .tools import audio as audio_tools
 from .tools import automation as automation_tools
 from .tools import bulk as bulk_tools
 from .tools import chains as chains_tools
+from .tools import channels_extra as channels_extra_tools
 from .tools import color as color_tools
 from .tools import compose as compose_tools
 from .tools import export as export_tools
+from .tools import general as general_tools
 from .tools import live as live_tools
 from .tools import mix_doctor as mix_doctor_tools
 from .tools import mixing as mixing_tools
+from .tools import mixer_extra as mixer_extra_tools
 from .tools import mixer_record as mixer_record_tools
+from .tools import patterns_extra as patterns_extra_tools
 from .tools import phase1 as phase1_tools
 from .tools import pianoroll as pianoroll_tools
 from .tools import plugin as plugin_tools
@@ -45,6 +49,7 @@ from .tools import project as project_tools
 from .tools import resources as resource_defs
 from .tools import routing as routing_tools
 from .tools import transport as transport_tools
+from .tools import ui as ui_tools
 
 
 logger = logging.getLogger("fl_studio_mcp")
@@ -121,6 +126,11 @@ def build_server() -> FastMCP:
     automation_tools.register(mcp)  # Automation: get_automation_info / set_automation_point (API limit report)
     live_tools.register(mcp)        # Live MIDI: dumpScoreLog, midiNoteOn, quantize, etc.
     mixer_record_tools.register(mcp)  # Mixer record-arm, FX slot color, active effect, focus editor
+    general_tools.register(mcp)     # v0.4: project metadata, time sig, PPQ, undo/redo
+    channels_extra_tools.register(mcp)  # v0.4: channel type/activity/swing/grid bits/step params
+    patterns_extra_tools.register(mcp)  # v0.4: pattern color/length/channel loop/multi-select
+    mixer_extra_tools.register(mcp)  # v0.4: parametric EQ, plugin mix/mute, REC events, track ops
+    ui_tools.register(mcp)          # v0.4: hint bar, snap mode, focused plugin, window, browser
     mix_doctor_tools.register(mcp)  # Mix Doctor: diagnose whole mix + gated apply-fixes
     # Later tool packs register here as they ship:
     #   pattern_tools.register(mcp)
