@@ -312,7 +312,7 @@ def _h_ping(params):
     return {
         "fl_version": _fl_version,
         "protocol_version": PROTOCOL_VERSION,
-        "build": "color-v17",   # reload marker -- bump to verify reloads take
+        "build": "color-v18",   # reload marker -- bump to verify reloads take
         "ts": time.time(),
     }
 
@@ -1788,11 +1788,29 @@ def _h_get_activity_level(p):
 
 
 def _h_get_channel_index(p):
-    name = str(p["name"])
+    """Look up the channel-rack index for a named channel.
+
+    On FL 26.1.2 channels.getChannelIndex(name) fails with "'str' object
+    cannot be interpreted as an integer" -- the function exists but its
+    argument signature differs from the FL-Studio-API-Stubs documentation.
+    We work around this by iterating channels.getChannelName() over all
+    indices and matching the name. Returns -1 if not found.
+    """
+    name = str(p.get("name", ""))
+    if not name:
+        return {"ok": False, "error": "'name' is required"}
     try:
-        return {"ok": True, "name": name, "index": int(channels.getChannelIndex(name))}  # type: ignore[attr-defined]
+        n = channels.channelCount()  # type: ignore[attr-defined]
+        for i in range(n):
+            if channels.getChannelName(i) == name:  # type: ignore[attr-defined]
+                return {"ok": True, "name": name, "index": i}
+        # case-insensitive fallback
+        for i in range(n):
+            if channels.getChannelName(i).lower() == name.lower():  # type: ignore[attr-defined]
+                return {"ok": True, "name": name, "index": i}
+        return {"ok": True, "name": name, "index": -1, "note": "not found"}
     except Exception as e:
-        return {"ok": False, "error": "getChannelIndex: %s" % e}
+        return {"ok": False, "error": "get_channel_index: %s" % e}
 
 
 def _h_is_channel_selected(p):
