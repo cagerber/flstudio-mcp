@@ -110,7 +110,19 @@ def list_ports() -> dict:
 # ---------------------------------------------------------------------------
 
 class FLBridge:
-    """Holds open MIDI ports for the lifetime of the MCP server process."""
+    """Holds open MIDI ports for the lifetime of the MCP server process.
+
+    Resilience (v0.3, off by default -- opt in via env vars):
+      FLSTUDIO_MCP_RETRY_ON_TIMEOUT=1   auto-retry once on FLTimeout with
+                                        +50% timeout budget.
+      FLSTUDIO_MCP_REOPEN_ON_DEAD=1    after N consecutive transport
+                                        failures, close + reopen ports
+                                        before the next call. N defaults to
+                                        3; set FLSTUDIO_MCP_REOPEN_AFTER
+                                        to override.
+    The env vars are checked at construction so tests can flip them
+    cleanly. The TCPBridge path is unaffected -- it already auto-fails.
+    """
 
     def __init__(
         self,
@@ -118,11 +130,37 @@ class FLBridge:
         port_from_fl: Optional[str] = None,
         *,
         default_timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        retry_on_timeout: Optional[bool] = None,
+        reopen_on_dead: Optional[bool] = None,
+        reopen_after: Optional[int] = None,
     ):
         _ensure_mido()
         self._port_to_fl_pattern = port_to_fl or protocol.port_to_fl_name()
         self._port_from_fl_pattern = port_from_fl or protocol.port_from_fl_name()
         self.default_timeout = default_timeout
+
+        def _env_flag(name: str, default: bool = False) -> bool:
+            v = os.environ.get(name)
+            if v is None:
+                return default
+            return v.strip().lower() in ("1", "true", "yes", "on")
+
+        self._retry_on_timeout = (
+            retry_on_timeout
+            if retry_on_timeout is not None
+            else _env_flag("FLSTUDIO_MCP_RETRY_ON_TIMEOUT", True)
+        )
+        self._reopen_on_dead = (
+            reopen_on_dead
+            if reopen_on_dead is not None
+            else _env_flag("FLSTUDIO_MCP_REOPEN_ON_DEAD", True)
+        )
+        self._reopen_after = (
+            reopen_after
+            if reopen_after is not None
+            else int(os.environ.get("FLSTUDIO_MCP_REOPEN_AFTER", "3"))
+        )
+        self._consecutive_failures = 0
 
         self._lock = threading.Lock()
         self._pending: Dict[str, _Slot] = {}
@@ -223,6 +261,63 @@ class FLBridge:
         *,
         timeout: Optional[float] = None,
     ) -> Any:
+        # Cheap resilience: if we have a streak of transport failures, try
+        # to reopen the ports once before this call. This catches the
+        # 'FL was restarted / controller script was reloaded' case where
+        # the MIDI device list changed under us.
+        if self._reopen_on_dead and self._consecutive_failures >= self._reopen_after:
+            logger.warning(
+                "FLBridge: %d consecutive failures -- attempting port reopen",
+                self._consecutive_failures,
+            )
+            try:
+                self.close()
+                self.open()
+                # Force a fresh heartbeat wait after reopen.
+                self._last_heartbeat = 0.0
+                self.wait_for_heartbeat(timeout=HEARTBEAT_STALE_SECONDS)
+                self._consecutive_failures = 0
+            except Exception as e:
+                logger.warning("FLBridge: reopen failed: %s", e)
+
+        effective_timeout = timeout or self.default_timeout
+        try:
+            data = self._call_once(command, params, timeout=effective_timeout)
+        except FLTimeout:
+            # Single auto-retry with +50% budget. Skipped if the caller
+            # disabled resilience OR the call already has a custom timeout
+            # (the caller already opted into strict timing).
+            if self._retry_on_timeout and timeout is None:
+                self._consecutive_failures += 1
+                logger.info(
+                    "FLBridge: %r timed out -- retrying once with +50%% budget",
+                    command,
+                )
+                try:
+                    data = self._call_once(command, params,
+                                            timeout=effective_timeout * 1.5)
+                    self._consecutive_failures = 0
+                    return data
+                except FLBridgeError:
+                    raise
+            self._consecutive_failures += 1
+            raise
+        except (FLNotRunning, FLCommandFailed):
+            self._consecutive_failures += 1
+            raise
+
+        self._consecutive_failures = 0
+        return data
+
+    def _call_once(
+        self,
+        command: str,
+        params: Optional[dict] = None,
+        *,
+        timeout: float,
+    ) -> Any:
+        """One round-trip without retry. Split out of ``call`` so the retry
+        wrapper can call it cleanly. Not part of the public API."""
         self.check_alive()
 
         request_id = protocol.new_request_id()
@@ -236,10 +331,10 @@ class FLBridge:
         try:
             msg = mido.Message("sysex", data=encoded)
             self._out_port.send(msg)
-            if not slot.event.wait(timeout or self.default_timeout):
+            if not slot.event.wait(timeout):
                 raise FLTimeout(
                     "FL Studio did not respond to %r within %.1fs."
-                    % (command, timeout or self.default_timeout)
+                    % (command, timeout)
                 )
             resp = slot.payload or {}
             if resp.get("ok"):
