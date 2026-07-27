@@ -155,6 +155,25 @@ CMD_ARRANGE_ADD_MARKER = "arrange_add_marker"          # addAutoTimeMarker at a 
 # Note-bridge hardening -- ensure the Piano roll is open before a note-write
 CMD_ENSURE_PIANO_ROLL = "ensure_piano_roll"            # ui.showWindow(widPianoRoll)
 
+# Project persistence (added in v0.3 / MCP enhancements pass)
+CMD_SAVE_PROJECT = "save_project"                      # general.save + (optionally) saveAs
+CMD_GET_PROJECT_PATH = "get_project_path"              # ui.getProjectPath / Title
+CMD_GET_PROJECT_DIRTY = "get_project_dirty"            # has the project been modified since last save?
+CMD_EXPORT_CURRENT_PROJECT_MIDI = "export_current_project_midi"  # dumps every channel's notes -> type-1 .mid
+
+# Channel / mixer track creation (added in v0.3)
+CMD_CREATE_CHANNEL = "create_channel"                  # channels.new + setName + return index
+CMD_CREATE_MIXER_TRACK = "create_mixer_track"          # mixer.new + setName + return index
+
+# Plugin preset write path (added in v0.3) -- FL can iterate presets, so we
+# can scan to the requested name. Naming convention: full preset name match
+# preferred, falls back to substring if no exact.
+CMD_LOAD_PLUGIN_PRESET = "load_plugin_preset"          # op=by_name | by_index
+
+# Automation (added in v0.3) -- thin read + single-point write
+CMD_GET_AUTOMATION_INFO = "get_automation_info"        # surface which slots/channels have automation
+CMD_SET_AUTOMATION_POINT = "set_automation_point"      # write one point at (pos_ticks, value_norm)
+
 
 # ---------------------------------------------------------------------------
 # SysEx wire format

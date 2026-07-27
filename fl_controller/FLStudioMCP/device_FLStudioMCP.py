@@ -1076,6 +1076,58 @@ def _h_arrange_add_marker(p):
         return {"ok": False, "error": "addAutoTimeMarker: %s" % e}
 
 
+# ------------------------------------------------------------------
+# v0.3 MCP enhancements -- stub bodies (filled in by later commits).
+# Stubs raise a recognizable error so premature calls fail LOUDLY
+# instead of silently succeeding, which is important for diagnosing
+# partial-deployed controller scripts during the staged rollout.
+# ------------------------------------------------------------------
+
+def _h_save_project(p):
+    raise _ClientError("save_project: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_get_project_path(p):
+    raise _ClientError("get_project_path: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_get_project_dirty(p):
+    raise _ClientError("get_project_dirty: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_export_current_project_midi(p):
+    raise _ClientError("export_current_project_midi: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_create_channel(p):
+    raise _ClientError("create_channel: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_create_mixer_track(p):
+    raise _ClientError("create_mixer_track: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_load_plugin_preset(p):
+    raise _ClientError("load_plugin_preset: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_get_automation_info(p):
+    raise _ClientError("get_automation_info: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
+def _h_set_automation_point(p):
+    raise _ClientError("set_automation_point: not yet implemented in this controller build",
+                       code="not_implemented")
+
+
 _HANDLERS = {
     "ping": _h_ping,
     "get_tempo": _h_get_tempo,
@@ -1122,4 +1174,14 @@ _HANDLERS = {
     "channel_select": _h_channel_select,
     "ensure_piano_roll": _h_ensure_piano_roll,
     "pattern_list": _h_pattern_list,
+    # v0.3 / MCP enhancements -- fill in below
+    "save_project": _h_save_project,
+    "get_project_path": _h_get_project_path,
+    "get_project_dirty": _h_get_project_dirty,
+    "export_current_project_midi": _h_export_current_project_midi,
+    "create_channel": _h_create_channel,
+    "create_mixer_track": _h_create_mixer_track,
+    "load_plugin_preset": _h_load_plugin_preset,
+    "get_automation_info": _h_get_automation_info,
+    "set_automation_point": _h_set_automation_point,
 }
