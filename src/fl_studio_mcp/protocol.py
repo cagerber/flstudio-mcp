@@ -174,6 +174,31 @@ CMD_LOAD_PLUGIN_PRESET = "load_plugin_preset"          # op=by_name | by_index
 CMD_GET_AUTOMATION_INFO = "get_automation_info"        # surface which slots/channels have automation
 CMD_SET_AUTOMATION_POINT = "set_automation_point"      # write one point at (pos_ticks, value_norm)
 
+# v0.3 / MCP enhancements -- discovered from FL-Studio-API-Stubs + live probe
+# These are the FUNCTIONS we DIDN'T HAVE in v0.2 that the stubs surfaced
+# (verified live against FL 26.1.2 build 5557):
+
+# The big find: general.dumpScoreLog is the live-capture -> pattern path
+# (writes the last ``time`` seconds of played MIDI to the selected pattern).
+CMD_DUMP_SCORE_LOG = "dump_score_log"                  # general.dumpScoreLog(time, silent)
+CMD_SAFE_TO_EDIT = "safe_to_edit"                      # general.safeToEdit() -- edit guard
+CMD_TRIGGER_NOTE = "trigger_note"                      # channels.midiNoteOn(idx, note, vel, ch=-1)
+CMD_QUANTIZE_CHANNEL = "quantize_channel"              # channels.quickQuantize(idx, startOnly, useGlobalIndex)
+CMD_GET_SELECTED_CHANNEL = "get_selected_channel"      # channels.selectedChannel(canBeNone, offset, indexGlobal)
+CMD_GET_CHANNEL_MIDI_IN_PORT = "get_channel_midi_in_port"  # channels.getChannelMidiInPort(idx)
+CMD_GET_ACTIVE_EFFECT = "get_active_effect"            # mixer.getActiveEffectIndex() -> (track, slot) | None
+CMD_FOCUS_PLUGIN_EDITOR = "focus_plugin_editor"        # mixer.focusEditor(track, slot)
+CMD_MIXER_IS_TRACK_ARMED = "mixer_is_track_armed"      # mixer.isTrackArmed(idx)
+CMD_MIXER_ARM_TRACK = "mixer_arm_track"                # mixer.armTrack(idx)
+CMD_MIXER_IS_TRACK_ENABLED = "mixer_is_track_enabled"  # mixer.isTrackEnabled(idx)
+CMD_MIXER_TRACK_COUNT = "mixer_track_count"            # mixer.trackCount() -- distinct from mixer list count
+CMD_MIXER_GET_SLOT_COLOR = "mixer_get_slot_color"      # mixer.getSlotColor(track, slot)
+CMD_MIXER_SET_SLOT_COLOR = "mixer_set_slot_color"      # mixer.setSlotColor(track, slot, color)
+CMD_PATTERN_BURN_LOOP = "pattern_burn_loop"            # patterns.burnLoop(channel, storeUndo, updateUi)
+CMD_PATTERN_IS_DEFAULT = "pattern_is_default"          # patterns.isPatternDefault(idx)
+CMD_PATTERN_SELECT = "pattern_select"                  # patterns.selectPattern(idx, value=-1, preview=False)
+CMD_PATTERN_IS_SELECTED = "pattern_is_selected"        # patterns.isPatternSelected(idx)
+
 
 # ---------------------------------------------------------------------------
 # SysEx wire format

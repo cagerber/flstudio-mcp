@@ -33,8 +33,10 @@ from .tools import chains as chains_tools
 from .tools import color as color_tools
 from .tools import compose as compose_tools
 from .tools import export as export_tools
+from .tools import live as live_tools
 from .tools import mix_doctor as mix_doctor_tools
 from .tools import mixing as mixing_tools
+from .tools import mixer_record as mixer_record_tools
 from .tools import phase1 as phase1_tools
 from .tools import pianoroll as pianoroll_tools
 from .tools import plugin as plugin_tools
@@ -103,6 +105,8 @@ def build_server() -> FastMCP:
     presets_tools.register(mcp)     # Preset suggester: read preset names from disk
     project_tools.register(mcp)     # Project persistence: dirty / title / save (API limit report)
     automation_tools.register(mcp)  # Automation: get_automation_info / set_automation_point (API limit report)
+    live_tools.register(mcp)        # Live MIDI: dumpScoreLog, midiNoteOn, quantize, etc.
+    mixer_record_tools.register(mcp)  # Mixer record-arm, FX slot color, active effect, focus editor
     mix_doctor_tools.register(mcp)  # Mix Doctor: diagnose whole mix + gated apply-fixes
     # Later tool packs register here as they ship:
     #   pattern_tools.register(mcp)

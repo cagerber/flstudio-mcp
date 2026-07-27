@@ -22,6 +22,7 @@ from ..connection import get_bridge
 def register(mcp: FastMCP) -> None:
     _WR = {"readOnlyHint": False, "destructiveHint": False,
            "idempotentHint": False, "openWorldHint": True}
+    _RO = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": True}
 
     @mcp.tool(annotations={"title": "New named pattern (selects it)", **_WR})
     def fl_arrange_new_pattern(
@@ -57,3 +58,55 @@ def register(mcp: FastMCP) -> None:
     ) -> dict:
         """Add a named timeline marker at a bar (intro/verse/chorus/drop)."""
         return get_bridge().call(protocol.CMD_ARRANGE_ADD_MARKER, {"bar": bar, "name": name})
+
+    @mcp.tool(annotations={"title": "Select a pattern (multi-select aware)", **_WR})
+    def fl_arrange_select_pattern(
+        index: Annotated[int, Field(ge=1, description="Pattern index (1-based).")],
+        value: Annotated[int, Field(
+            description="-1 = toggle (default), 0 = deselect, 1 = select."
+        )] = -1,
+        preview: Annotated[bool, Field(
+            description="If True and the pattern gets selected, FL enters pattern mode and starts playback."
+        )] = False,
+    ) -> dict:
+        """Select (or toggle / deselect) a pattern by 1-based index. Pair
+        with fl_arrange_new_pattern to build multi-pattern arrangements
+        before dragging them onto the playlist."""
+        return get_bridge().call(protocol.CMD_PATTERN_SELECT, {
+            "index": index, "value": value, "preview": preview,
+        })
+
+    @mcp.tool(annotations={"title": "Check if a pattern is selected", **_RO})
+    def fl_arrange_is_pattern_selected(
+        index: Annotated[int, Field(ge=1, description="Pattern index (1-based).")],
+    ) -> dict:
+        """Return True if the pattern at index is currently selected."""
+        return get_bridge().call(protocol.CMD_PATTERN_IS_SELECTED, {"index": index})
+
+    @mcp.tool(annotations={"title": "Is the pattern the empty default?", **_RO})
+    def fl_arrange_is_pattern_default(
+        index: Annotated[int, Field(ge=1, description="Pattern index (1-based).")],
+    ) -> dict:
+        """Return True if the pattern at index is the FL default (no
+        user-written notes). Useful for skipping over empty patterns when
+        iterating."""
+        return get_bridge().call(protocol.CMD_PATTERN_IS_DEFAULT, {"index": index})
+
+    @mcp.tool(annotations={"title": "Burn step-sequencer loop on a channel", **_WR})
+    def fl_arrange_burn_loop(
+        channel: Annotated[int, Field(ge=0, description="Channel index.")],
+        store_undo: Annotated[int, Field(
+            description="0 = no undo checkpoint; 1 = store undo (default)."
+        )] = 1,
+        update_ui: Annotated[int, Field(
+            description="0 = no UI update; 1 = update UI (default)."
+        )] = 1,
+    ) -> dict:
+        """Disable the step-sequencer loop on a channel for the CURRENT
+        pattern. Useful after a live performance capture that left looping
+        enabled -- burn it so the channel plays linearly."""
+        return get_bridge().call(protocol.CMD_PATTERN_BURN_LOOP, {
+            "channel": channel,
+            "store_undo": store_undo,
+            "update_ui": update_ui,
+        })

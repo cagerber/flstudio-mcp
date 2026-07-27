@@ -1403,6 +1403,261 @@ def _h_set_automation_point(p):
     }
 
 
+# ------------------------------------------------------------------
+# v0.3 -- discovered via FL-Studio-API-Stubs (MaddyGuthridge) + live probe
+# Verified present on FL 26.1.2 build 5557 (api_probe).
+# ------------------------------------------------------------------
+
+def _h_dump_score_log(p):
+    """general.dumpScoreLog(time, silent=False) writes the last ``time``
+    seconds of played MIDI to the SELECTED pattern. This is the closest the
+    FL API gets to 'live capture into a pattern' (i.e. record what you
+    played back into the piano roll). The controller script CAN call this
+    -- the score log is buffered inside FL and written on demand."""
+    time_s = int(p.get("time", 5))
+    silent = bool(p.get("silent", True))
+    if time_s < 1 or time_s > 60:
+        return {"ok": False, "error": "time must be 1..60 seconds"}
+    try:
+        general.dumpScoreLog(time_s, silent)
+    except Exception as e:
+        return {"ok": False, "error": "dumpScoreLog: %s" % e}
+    return {
+        "ok": True,
+        "time": time_s,
+        "silent": silent,
+        "note": ("Wrote last %ds of played MIDI into the selected pattern. "
+                 "Verify with fl_ping + fl_get_pattern_state if available, "
+                 "or open the pattern in the piano roll." % time_s),
+    }
+
+
+def _h_safe_to_edit(p):
+    """general.safeToEdit() -- returns True when FL is in a state where
+    edits (automation writes, score-log dumps, etc) won't crash. Useful
+    guard before destructive operations."""
+    try:
+        ok = bool(general.safeToEdit())
+    except Exception as e:
+        return {"ok": False, "error": "safeToEdit: %s" % e}
+    return {"ok": True, "safe_to_edit": ok}
+
+
+def _h_trigger_note(p):
+    """channels.midiNoteOn(idxGlobal, note, velocity, channel=-1) -- live
+    note trigger. velocity=0 is a note-off. Use sparingly; this fires MIDI
+    in real time and bypasses the piano-roll editor."""
+    try:
+        idx = int(p["index"])
+        note = int(p["note"])
+        vel = int(p.get("velocity", 100))
+        ch = int(p.get("channel", -1))
+    except (KeyError, ValueError, TypeError) as e:
+        return {"ok": False, "error": "bad params: %s" % e}
+    if not (0 <= note <= 127):
+        return {"ok": False, "error": "note must be 0..127"}
+    if not (0 <= vel <= 127):
+        return {"ok": False, "error": "velocity must be 0..127"}
+    try:
+        channels.midiNoteOn(idx, note, vel, ch)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "midiNoteOn: %s" % e}
+    return {"ok": True, "index": idx, "note": note, "velocity": vel,
+            "channel": ch, "note_off": (vel == 0)}
+
+
+def _h_quantize_channel(p):
+    """channels.quickQuantize(index, startOnly=1, useGlobalIndex=False)."""
+    try:
+        idx = int(p["index"])
+        start_only = int(p.get("start_only", 1))
+        global_idx = bool(p.get("use_global_index", False))
+    except (KeyError, ValueError, TypeError) as e:
+        return {"ok": False, "error": "bad params: %s" % e}
+    try:
+        channels.quickQuantize(idx, start_only, global_idx)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "quickQuantize: %s" % e}
+    return {"ok": True, "index": idx, "start_only": start_only,
+            "use_global_index": global_idx}
+
+
+def _h_get_selected_channel(p):
+    """channels.selectedChannel(canBeNone=False, offset=0, indexGlobal=False)."""
+    can_be_none = bool(p.get("can_be_none", False))
+    offset = int(p.get("offset", 0))
+    global_idx = bool(p.get("index_global", False))
+    try:
+        sel = channels.selectedChannel(can_be_none, offset, global_idx)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectedChannel: %s" % e}
+    return {"ok": True, "selected": sel, "can_be_none": can_be_none,
+            "offset": offset, "index_global": global_idx}
+
+
+def _h_get_channel_midi_in_port(p):
+    """channels.getChannelMidiInPort(index) -- read the MIDI input port
+    assigned to a channel (the channel-rack input routing)."""
+    idx = int(p["index"])
+    try:
+        port = channels.getChannelMidiInPort(idx)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getChannelMidiInPort: %s" % e}
+    return {"ok": True, "index": idx, "midi_in_port": port}
+
+
+def _h_get_active_effect(p):
+    """mixer.getActiveEffectIndex() -> (track, slot) | None. Returns the
+    mixer track + slot of the focused effect plugin, or None if no plugin
+    is focused."""
+    try:
+        r = mixer.getActiveEffectIndex()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getActiveEffectIndex: %s" % e}
+    if r is None:
+        return {"ok": True, "active_effect": None}
+    # The stubs say it returns a tuple; be defensive.
+    try:
+        track, slot = r
+        return {"ok": True, "active_effect": {"track": int(track), "slot": int(slot)}}
+    except Exception:
+        return {"ok": True, "active_effect_raw": r}
+
+
+def _h_focus_plugin_editor(p):
+    """mixer.focusEditor(track, slot) -- focuses the plugin's UI editor in
+    FL. WARNING: this STICKS focus on the plugin and may steal keystrokes
+    from the user; intended for programmatic introspection, not chains of
+    tool calls."""
+    try:
+        track = int(p["track"])
+        slot = int(p["slot"])
+    except (KeyError, ValueError, TypeError) as e:
+        return {"ok": False, "error": "bad params: %s" % e}
+    try:
+        mixer.focusEditor(track, slot)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "focusEditor: %s" % e}
+    return {"ok": True, "track": track, "slot": slot,
+            "warning": "plugin editor is now focused; subsequent user "
+                       "keystrokes may be captured by the plugin"}
+
+
+def _h_mixer_is_track_armed(p):
+    """mixer.isTrackArmed(index) -> bool."""
+    idx = int(p["index"])
+    try:
+        armed = bool(mixer.isTrackArmed(idx))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackArmed: %s" % e}
+    return {"ok": True, "track": idx, "armed": armed}
+
+
+def _h_mixer_arm_track(p):
+    """mixer.armTrack(index) -- toggles record-arm on a mixer track. Use
+    isTrackArmed first to read the state, then armTrack to flip it."""
+    idx = int(p["index"])
+    try:
+        mixer.armTrack(idx)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "armTrack: %s" % e}
+    return {"ok": True, "track": idx, "toggled": True}
+
+
+def _h_mixer_is_track_enabled(p):
+    """mixer.isTrackEnabled(index) -> bool. Documented as 'functionally
+    identical to not isTrackMuted'."""
+    idx = int(p["index"])
+    try:
+        enabled = bool(mixer.isTrackEnabled(idx))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isTrackEnabled: %s" % e}
+    return {"ok": True, "track": idx, "enabled": enabled}
+
+
+def _h_mixer_track_count(p):
+    """mixer.trackCount() -> int. Distinct from the existing
+    mixer_list_tracks count because this is FL's view of track count
+    (includes master + current), not what the dispatcher paginated."""
+    try:
+        n = mixer.trackCount()  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "trackCount: %s" % e}
+    return {"ok": True, "track_count": int(n)}
+
+
+def _h_mixer_get_slot_color(p):
+    """mixer.getSlotColor(track, slot) -> int (0xBBGGRR)."""
+    track = int(p["track"])
+    slot = int(p["slot"])
+    try:
+        c = mixer.getSlotColor(track, slot)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "getSlotColor: %s" % e}
+    return {"ok": True, "track": track, "slot": slot, "color": int(c) & 0xFFFFFF}
+
+
+def _h_mixer_set_slot_color(p):
+    """mixer.setSlotColor(track, slot, color). Accepts color as 0xRRGGBB
+    (alpha-prefixed int); FL stores 0x--BBGGRR."""
+    track = int(p["track"])
+    slot = int(p["slot"])
+    color = int(p["color"])
+    try:
+        mixer.setSlotColor(track, slot, color)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "setSlotColor: %s" % e}
+    return {"ok": True, "track": track, "slot": slot, "color": color}
+
+
+def _h_pattern_burn_loop(p):
+    """patterns.burnLoop(channel, storeUndo=1, updateUi=1) -- disables
+    step sequencer looping on a channel for the current pattern."""
+    channel = int(p["channel"])
+    store_undo = int(p.get("store_undo", 1))
+    update_ui = int(p.get("update_ui", 1))
+    try:
+        patterns.burnLoop(channel, store_undo, update_ui)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "burnLoop: %s" % e}
+    return {"ok": True, "channel": channel,
+            "store_undo": store_undo, "update_ui": update_ui}
+
+
+def _h_pattern_is_default(p):
+    """patterns.isPatternDefault(index) -> bool -- True if the pattern is
+    the default empty state (no notes written)."""
+    idx = int(p["index"])
+    try:
+        is_def = bool(patterns.isPatternDefault(idx))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isPatternDefault: %s" % e}
+    return {"ok": True, "pattern": idx, "is_default": is_def}
+
+
+def _h_pattern_select(p):
+    """patterns.selectPattern(index, value=-1, preview=False). value: -1=toggle,
+    0=deselect, 1=select. preview=True also starts playback of the pattern."""
+    idx = int(p["index"])
+    value = int(p.get("value", -1))
+    preview = bool(p.get("preview", False))
+    try:
+        patterns.selectPattern(idx, value, preview)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "selectPattern: %s" % e}
+    return {"ok": True, "pattern": idx, "value": value, "preview": preview}
+
+
+def _h_pattern_is_selected(p):
+    """patterns.isPatternSelected(index) -> bool."""
+    idx = int(p["index"])
+    try:
+        sel = bool(patterns.isPatternSelected(idx))  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"ok": False, "error": "isPatternSelected: %s" % e}
+    return {"ok": True, "pattern": idx, "selected": sel}
+
+
 _HANDLERS = {
     "ping": _h_ping,
     "get_tempo": _h_get_tempo,
@@ -1459,4 +1714,23 @@ _HANDLERS = {
     "load_plugin_preset": _h_plugin_preset,   # alias for plugin_preset (v0.3)
     "get_automation_info": _h_get_automation_info,
     "set_automation_point": _h_set_automation_point,
+    # v0.3 stubs-found additions
+    "dump_score_log": _h_dump_score_log,
+    "safe_to_edit": _h_safe_to_edit,
+    "trigger_note": _h_trigger_note,
+    "quantize_channel": _h_quantize_channel,
+    "get_selected_channel": _h_get_selected_channel,
+    "get_channel_midi_in_port": _h_get_channel_midi_in_port,
+    "get_active_effect": _h_get_active_effect,
+    "focus_plugin_editor": _h_focus_plugin_editor,
+    "mixer_is_track_armed": _h_mixer_is_track_armed,
+    "mixer_arm_track": _h_mixer_arm_track,
+    "mixer_is_track_enabled": _h_mixer_is_track_enabled,
+    "mixer_track_count": _h_mixer_track_count,
+    "mixer_get_slot_color": _h_mixer_get_slot_color,
+    "mixer_set_slot_color": _h_mixer_set_slot_color,
+    "pattern_burn_loop": _h_pattern_burn_loop,
+    "pattern_is_default": _h_pattern_is_default,
+    "pattern_select": _h_pattern_select,
+    "pattern_is_selected": _h_pattern_is_selected,
 }
