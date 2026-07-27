@@ -130,3 +130,50 @@ def register(mcp: FastMCP) -> None:
         if isinstance(result, dict):
             result["resolved_param"] = {"index": idx, "name": name}
         return result
+
+    @mcp.tool(annotations={"title": "Load plugin preset by name", **_WR})
+    def fl_load_plugin_preset(
+        track: Annotated[int, Field(ge=0, description="Mixer track index (0 = Master).")],
+        slot: Annotated[
+            int, Field(ge=-1, le=9, description="Effect slot 0-9; pass -1 for the channel generator.")
+        ],
+        name: Annotated[
+            str, Field(description="Substring (or exact string if exact=True) of the preset name.")
+        ],
+        exact: Annotated[
+            bool, Field(description="If True, match the full preset name (case-insensitive); otherwise substring.")
+        ] = False,
+    ) -> dict:
+        """Step the plugin's preset cycle until the current preset name matches
+        ``name`` (substring by default; pass exact=True for whole-name match).
+
+        FL exposes ONLY nextPreset/prevPreset stepping -- there is no direct
+        "set preset by index" function. This call costs O(preset_count)
+        round-trips and aborts after one full cycle without a match.
+
+        For a channel generator (sampler/instrument on a channel), pass
+        slot=-1. Returns {ok, preset_count, steps, current_name, first_seen,
+        requested, exact} on success or a clear 'not found' error.
+
+        Tip: pair with fl_list_presets(plugin_filter='<plugin name>') to see
+        the actual preset names before calling this.
+        """
+        return get_bridge().call(protocol.CMD_LOAD_PLUGIN_PRESET, {
+            "track": track, "slot": slot, "op": "by_name",
+            "name": name, "exact": exact,
+        })
+
+    @mcp.tool(annotations={"title": "Load plugin preset by index", **_WR})
+    def fl_load_plugin_preset_by_index(
+        track: Annotated[int, Field(ge=0)],
+        slot: Annotated[int, Field(ge=-1, le=9)],
+        index: Annotated[
+            int, Field(description="Target preset index (mod preset_count).")
+        ],
+    ) -> dict:
+        """Step ``index`` times from the current preset (wrapping). Useful for
+        'go to first' (index=0) or 'go to last' (index=-1). Same constraint
+        as fl_load_plugin_preset: only next/prev stepping is available."""
+        return get_bridge().call(protocol.CMD_LOAD_PLUGIN_PRESET, {
+            "track": track, "slot": slot, "op": "by_index", "index": index,
+        })

@@ -870,14 +870,42 @@ def _h_mixer_get_peaks(p):
     return out
 
 
-# -- Plugin preset navigate/read (op: info | next | prev) --------------------
+# -- Plugin preset navigate/read (op: info | next | prev | by_name | by_index) --
+
+# FL has no direct "set preset by index" function -- only next/prev stepping.
+# So we walk the cycle once and stop on a name match (case-insensitive substring
+# by default; exact=True for whole-string match).
+# Cost: O(preset_count) per call. Most plugins have <100 presets; fine for
+# single-shot use but don't call this from a tight loop.
+
+def _plugin_current_name(track, slot):
+    """Return the current preset name, trying both FL name flags (3 = name only,
+    6 = name + vendor). Returns the first one that's truthy."""
+    for flag in (3, 6):
+        try:
+            n = plugins.getName(track, slot, flag, 0)
+        except Exception:
+            n = None
+        if n:
+            return n
+    return None
+
 
 def _h_plugin_preset(p):
     """Navigate/read a plugin's presets. For a channel generator pass slot=-1.
     op 'next'/'prev' step the preset first, then everything reports the CURRENT
     state: preset_count + candidate current-preset names (getName flags 3/6 +
     getPluginName). Wrapped defensively -- a walled-off plugin just yields
-    count 0/1 and unchanging names."""
+    count 0/1 and unchanging names.
+
+    New (v0.3):
+      'by_name'  -> step through the preset cycle until the current preset
+                    name contains ``name`` (case-insensitive substring).
+                    Stops after one full cycle without a match.
+                    Params: name (required), exact (default False).
+      'by_index' -> step next/prev until the index lands on ``index`` (mod
+                    getPresetCount). Useful for the first preset or last.
+    """
     track = int(p["track"])
     slot = int(p.get("slot", -1))
     op = p.get("op", "info")
@@ -892,6 +920,86 @@ def _h_plugin_preset(p):
             plugins.prevPreset(track, slot)
         except Exception as e:
             out["nav_error"] = "prevPreset: %s" % e
+    elif op == "by_name":
+        name_want = (p.get("name") or "").strip()
+        if not name_want:
+            return {"ok": False, "error": "by_name requires 'name' param",
+                    "track": track, "slot": slot}
+        try:
+            count = plugins.getPresetCount(track, slot)
+        except Exception as e:
+            return {"ok": False, "error": "getPresetCount: %s" % e,
+                    "track": track, "slot": slot}
+        if count is None or count <= 1:
+            return {"ok": False, "error": "no presets available",
+                    "track": track, "slot": slot, "preset_count": count}
+        # Iterate one full cycle.
+        exact = bool(p.get("exact", False))
+        match_name = name_want.lower()
+        steps = 0
+        found = False
+        first_seen = None
+        for _ in range(count):
+            current = _plugin_current_name(track, slot)
+            if current is None:
+                # walled-off plugin -- bail
+                break
+            if first_seen is None:
+                first_seen = current
+            cmp = current.lower()
+            if (exact and cmp == match_name) or (not exact and match_name in cmp):
+                found = True
+                break
+            try:
+                plugins.nextPreset(track, slot)
+            except Exception as e:
+                return {"ok": False, "error": "nextPreset mid-iter: %s" % e,
+                        "track": track, "slot": slot, "steps": steps}
+            steps += 1
+        out.update({
+            "ok": found,
+            "preset_count": count,
+            "steps": steps,
+            "current_name": _plugin_current_name(track, slot),
+            "first_seen": first_seen,
+            "requested": name_want,
+            "exact": exact,
+            "note": ("Match found." if found else
+                     "No preset matched %r within one full cycle (%d steps). "
+                     "Use fl_plugin_preset op=info to see the name format." % (
+                         name_want, count)),
+        })
+        if not found:
+            out["error"] = "preset name not found"
+        return out
+    elif op == "by_index":
+        if "index" not in p:
+            return {"ok": False, "error": "by_index requires 'index' param",
+                    "track": track, "slot": slot}
+        try:
+            count = plugins.getPresetCount(track, slot)
+        except Exception as e:
+            return {"ok": False, "error": "getPresetCount: %s" % e,
+                    "track": track, "slot": slot}
+        if count is None or count <= 1:
+            return {"ok": False, "error": "no presets available",
+                    "track": track, "slot": slot, "preset_count": count}
+        target = int(p["index"]) % count
+        # Always step next `target` times from current (wrap). This is the
+        # only navigation FL exposes.
+        for _ in range(target):
+            try:
+                plugins.nextPreset(track, slot)
+            except Exception as e:
+                return {"ok": False, "error": "nextPreset: %s" % e,
+                        "track": track, "slot": slot}
+        out.update({
+            "ok": True,
+            "preset_count": count,
+            "index": target,
+            "current_name": _plugin_current_name(track, slot),
+        })
+        return out
     try:
         out["preset_count"] = plugins.getPresetCount(track, slot)
     except Exception as e:
@@ -1237,11 +1345,6 @@ def _h_create_mixer_track(p):
     return out
 
 
-def _h_load_plugin_preset(p):
-    raise _ClientError("load_plugin_preset: not yet implemented in this controller build",
-                       code="not_implemented")
-
-
 def _h_get_automation_info(p):
     raise _ClientError("get_automation_info: not yet implemented in this controller build",
                        code="not_implemented")
@@ -1305,7 +1408,7 @@ _HANDLERS = {
     "export_current_project_midi": _h_export_current_project_midi,
     "create_channel": _h_create_channel,
     "create_mixer_track": _h_create_mixer_track,
-    "load_plugin_preset": _h_load_plugin_preset,
+    "load_plugin_preset": _h_plugin_preset,   # alias for plugin_preset (v0.3)
     "get_automation_info": _h_get_automation_info,
     "set_automation_point": _h_set_automation_point,
 }
