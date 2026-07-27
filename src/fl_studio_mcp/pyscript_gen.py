@@ -41,28 +41,24 @@ def _run():
             score.clearNotes(True)     # FL 25.2.5: positional, no keyword
         except TypeError:
             score.clearNotes()
-    for pitch, t_bars, len_bars, vel in NOTES:
-        n = flp.Note()
-        n.number = int(pitch)
-        n.time = int(round(t_bars * bar))
-        n.length = max(1, int(round(len_bars * bar)))
-        n.velocity = float(vel)
-        score.addNote(n)
-
-
-def _go():
-    undo = getattr(flp.score, "undoSection", None)
-    if callable(undo):
-        try:
-            with undo():
-                _run()
-            return
         except Exception:
+            # Other clearNotes failures are non-fatal — the notes
+            # might overlap existing ones but that's OK.
             pass
-    _run()
+    for pitch, t_bars, len_bars, vel in NOTES:
+        try:
+            n = flp.Note()
+            n.number = int(pitch)
+            n.time = int(round(t_bars * bar))
+            n.length = max(1, int(round(len_bars * bar)))
+            n.velocity = float(vel)
+            score.addNote(n)
+        except Exception:
+            # Single-note failures shouldn't block the rest.
+            pass
 
 
-_go()
+_run()
 '''
 
 
@@ -90,7 +86,7 @@ def write_apply_script(notes, mode="replace", scripts_dir=None):
     scripts_dir = scripts_dir or PIANO_ROLL_SCRIPTS_DIR
     text = render_apply_script(notes, mode)
     path = os.path.join(scripts_dir, APPLY_SCRIPT_NAME)
-    with open(path, "w", encoding="ascii") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     return path
 
@@ -178,6 +174,6 @@ def write_quantize_script(grid_bars, snap_ends=False, scripts_dir=None):
     scripts_dir = scripts_dir or PIANO_ROLL_SCRIPTS_DIR
     text = render_quantize_script(grid_bars, snap_ends)
     path = os.path.join(scripts_dir, APPLY_SCRIPT_NAME)
-    with open(path, "w", encoding="ascii") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     return path
