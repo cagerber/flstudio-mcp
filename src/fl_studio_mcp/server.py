@@ -72,9 +72,23 @@ REQUIREMENTS
 
 LIMITS YOU SHOULD KNOW ABOUT (these are FL API limitations, not server bugs)
   - Cannot load new VST/AU plugin instances. You can only control plugins
-    that already exist in the project.
-  - Cannot create new patterns from scratch. Work with existing patterns,
-    or clone via the Piano Roll pyscript.
+    that already exist in the project. Use fl_load_plugin_preset to step
+    through a loaded plugin's preset cycle by name.
+  - Cannot create new channels or mixer tracks (channels.new / mixer.new
+    do not exist in the controller-script API). Use FL's UI for this.
+    fl_create_channel / fl_create_mixer_track return an honest
+    'api_unavailable' report with the workaround.
+  - Cannot enumerate notes in patterns / channels -- so the MCP cannot
+    dump the current project to a .mid. fl_export_current_project_midi
+    returns an honest report. Use fl_dump_score_log to capture LIVE MIDI
+    into the selected pattern, or fl_export_midi to build a .mid from a
+    spec.
+  - Cannot save the project from script (general.save is not exposed).
+    fl_save_project returns an honest report -- the user presses Ctrl+S.
+  - Cannot create automation clips. fl_get_automation_info /
+    fl_set_automation_point return honest reports; the step sequencer
+    (channels.setGridBit / setStepParameterByIndex) IS scriptable but
+    that is sequencer data, not automation.
   - Tempo writes are sometimes ignored if FL is in a modal dialog.
 
 When the user asks for something outside these limits, explain the limit

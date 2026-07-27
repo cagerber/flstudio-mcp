@@ -1,8 +1,19 @@
-"""Build the 'Letters Never Sent' romantic ballad .mid (C Aeolian, 78 BPM, 4/4, 20 bars).
+"""Generic section/track composer -> type-1 .mid (reusable helper).
 
-This drives the same path the fl_export_midi tool uses (fl_studio_mcp.music.midi_export.write_midi).
-It produces one type-1 .mid with 4 named tracks (Lead, Chords, Bass, Drums) that Anton imports
-into FL Studio, assigns Romantic Keys VSTi (and the existing 808 kit) to, and plays.
+Builds a multi-track Standard MIDI File from a section spec (chord
+progression per bar, optional drum guide) plus per-track note specs
+(chords/bass/lead melody). Drives the same path the fl_export_midi tool
+uses (fl_studio_mcp.music.midi_export.write_midi) -- the .mid is
+importable into FL and ready for instrument assignment.
+
+The default main() builds the 'Letters Never Sent' romantic ballad
+(C Aeolian, 78 BPM, 4/4, 20 bars) as a worked example. Import the module
+and call build_midi(...) or write_midi(...) directly to compose your
+own arrangement:
+
+    from compose import PROGRESSION, build_chords_track, build_bass_track,
+                        build_lead_track, build_drums_track
+    # Override PROGRESSION + call the builders + write_midi(...)
 
 Form (20 bars, 4/4 @ 78 BPM):
   Intro   (1-4)  : | Cm  | Ab  | Fm  | G7 |
@@ -10,8 +21,6 @@ Form (20 bars, 4/4 @ 78 BPM):
   Chorus  (9-12) : | Cm  | Ab  | Fm  | G7 |
   Bridge  (13-16): | Ab  | G7  | Cm  | Ab |
   Outro   (17-20): | Cm  | Ab  | Fm  | Cm |
-
-Bar numbers in the file spec are 0-based; the song starts at start_bars=0.
 """
 from __future__ import annotations
 

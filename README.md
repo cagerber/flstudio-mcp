@@ -28,6 +28,7 @@ fl-studio-mcp-daemon               :: start the bridge, keep it running
 
 ```bash
 ./scripts/install_macos.sh         # macOS: controller + server + note bridge
+./scripts/install_linux.sh         # Linux/Wine: controller + server + note bridge
 fl-studio-mcp-daemon               # start the bridge, keep it running
 ```
 
@@ -65,7 +66,7 @@ Full setup is below.
 - Tempo and key estimation from an audio file.
 - Melody-to-MIDI transcription (CREPE pitch tracking, with a lighter fallback).
 
-The server exposes 67 tools across 14 categories, plus 6 live resources (project, mixer, transport, channels, patterns, status) that Claude can read directly.
+The server exposes 90+ tools across 18 categories, plus 6 live resources (project, mixer, transport, channels, patterns, status) that Claude can read directly.
 
 ## What sets it apart
 
@@ -77,20 +78,29 @@ These are properties of FL Studio's scripting API, stated plainly:
 
 - **Plugins, audio files, and rendering are UI-only.** FL's API cannot load a plugin, load an audio file, or render audio. The plugin and preset tools therefore *suggest* — you load the chosen plugin or preset, and Claude then configures it. Audio export is done manually (File > Export); Claude can analyze the rendered file afterward.
 - **Note writing is armed once per session.** A generated pyscript writes notes into the piano roll; FL exposes no API to run a pyscript, so you run "MCP_Apply" once from the piano roll's scripting menu at the start of a session.
+- **Channel / mixer-track creation is UI-only.** FL's controller-script API on this build exposes no `channels.new()` or `mixer.new()`. The MCP tools for these (`fl_create_channel`, `fl_create_mixer_track`) return an honest "not exposed" report — add channels/tracks in FL's UI.
+- **Note enumeration is not exposed.** `channels.getNote*` / `patterns.getNote*` do not exist in the controller-script API, so the MCP cannot dump the current project's notes to a .mid. Workaround: use `fl_dump_score_log` to capture live-played MIDI into the selected pattern, or build a .mid from a spec via `fl_export_midi`.
+- **Save / load from script is not exposed.** `general.save()` does not exist in the controller-script API; the controller-script sandbox blocks file I/O. `fl_save_project` returns an honest report — press Ctrl+S in FL.
+- **Automation clips are UI-only.** Channel-rack and playlist automation clips are not exposed via the scripting API; the step sequencer / grid bit functions are NOT automation. `fl_get_automation_info` / `fl_set_automation_point` return honest "not exposed" reports.
 - **Micro-tonal and gamaka-heavy music is approximated.** Scales with intervals smaller than a semitone (e.g. Arabic maqam) are rounded to the nearest semitone, and traditions built on gamaka/ornamentation (e.g. Carnatic) get the *scale framework* — the correct swaras and intervals — not gamaka or micro-tonal rendering. That's a limit of 12-tone MIDI, not of the tools.
 
 ## Requirements
 
-- **Windows 10/11** (tested on Windows 11) or **macOS**
+- **Windows 10/11** (tested on Windows 11), **macOS**, or **Linux** (FL Studio under Wine; tested with Wine 11.x and `snd-virmidi`)
 - **FL Studio 2025** or newer
 - **Claude Desktop** (or any MCP client)
 - **Python 3.10+**
 - Virtual MIDI ports:
   - Windows: **loopMIDI** ([download](https://www.tobias-erichsen.de/software/loopmidi.html))
   - macOS: the built-in **IAC Driver**
+  - Linux: **snd-virmidi** (`sudo modprobe snd-virmidi`) or the stable `Midi Through Port-0`
 - Optional: **ffmpeg** on PATH (for MP3 analysis)
+- Linux only: **xdotool** (for auto-focus of FL Studio's piano roll before the note-bridge trigger)
 
-Linux is not yet supported — contributions welcome.
+Linux is supported via FL Studio under Wine. Use `scripts/install_linux.sh`
+to install; the daemon launcher pins the MIDI port names to `Midi Through Port-0`
+because Wine assigns a fresh numbered ALSA client per enabled MIDI device,
+which breaks naive substring port matching.
 
 ## Setup
 
@@ -123,6 +133,14 @@ Linux is not yet supported — contributions welcome.
    cd flstudio-mcp
    chmod +x scripts/install_macos.sh
    ./scripts/install_macos.sh
+   ```
+
+   Linux (FL Studio under Wine):
+   ```bash
+   git clone https://github.com/rosasynthesiz/flstudio-mcp
+   cd flstudio-mcp
+   chmod +x scripts/install_linux.sh scripts/run_daemon_linux.sh
+   ./scripts/install_linux.sh
    ```
 
    This copies the controller script, seeds the note-bridge pyscript

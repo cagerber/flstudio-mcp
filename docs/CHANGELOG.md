@@ -1,14 +1,87 @@
 # Changelog
 
-## Unreleased -- chunked short-message fallback (Wine/Linux)
+## Unreleased -- v0.3 / MCP enhancements (mcp-enhancements branch)
 
-Non-breaking addition to the v0.2 transport. Some Wine MIDI drivers
-(`winealsa.drv`) silently drop outbound SysEx sent from inside Wine
-(`device.midiOutSysex` / `midiOutLongMsg`) while short messages
-(`device.midiOutMsg` / `midiOutShortMsg`) go through fine -- this affects FL
-Studio running under Wine on Linux, where the FL -> server direction (TX
-port: responses + heartbeats) went dark even though the server -> FL
-direction (RX port: requests) worked.
+Driven by a cross-reference of the
+[MaddyGuthridge/FL-Studio-API-Stubs](https://github.com/MaddyGuthridge/FL-Studio-API-Stubs)
+docs against a live `api_probe()` of FL 26.1.2 build 5557. Result: 18 new
+commands + 6 honest-API-limit reports + bridge resilience + Linux support.
+
+### New tools
+
+**Project persistence** (4 tools):
+  - `fl_get_project_dirty` -- REAL. `general.getChangedFlag()`.
+  - `fl_get_project_path` -- returns title via `ui.getProgTitle()` (path not exposed).
+  - `fl_save_project` -- honest "FL's scripting API does not expose save()" report.
+  - `fl_export_current_project_midi` -- honest "API does not expose note enumeration" report.
+
+**Channel / mixer-track create** (2 tools):
+  - `fl_create_channel` / `fl_create_mixer_track` -- honest "add via FL UI" reports.
+
+**Plugin preset write path** (2 tools):
+  - `fl_load_plugin_preset(track, slot, name, exact)` -- step through presets until name matches.
+  - `fl_load_plugin_preset_by_index(track, slot, index)` -- step to a specific index.
+
+**Automation** (2 tools):
+  - `fl_get_automation_info` / `fl_set_automation_point` -- honest "no automation-clip API" reports.
+
+**Live MIDI** (6 tools, stubs-found):
+  - `fl_dump_score_log(time, silent)` -- `general.dumpScoreLog`, the live-capture-into-pattern path.
+  - `fl_safe_to_edit` -- `general.safeToEdit` guard.
+  - `fl_trigger_note(index, note, velocity, channel)` -- `channels.midiNoteOn` (velocity 0 = note-off).
+  - `fl_quantize_channel(index, start_only, use_global_index)` -- `channels.quickQuantize`.
+  - `fl_get_selected_channel(can_be_none, offset, index_global)` -- `channels.selectedChannel`.
+  - `fl_get_channel_midi_in_port(index)` -- `channels.getChannelMidiInPort`.
+
+**Mixer record + FX slot** (8 tools, stubs-found):
+  - `fl_mixer_is_track_armed(track)` / `fl_mixer_arm_track(track)` -- record-arm.
+  - `fl_mixer_is_track_enabled(track)` -- `mixer.isTrackEnabled`.
+  - `fl_mixer_track_count()` -- FL's view of track count.
+  - `fl_get_active_effect()` -- focused plugin (track, slot) or None.
+  - `fl_focus_plugin_editor(track, slot)` -- opens plugin UI (UI-stealing, warned).
+  - `fl_get_slot_color(track, slot)` / `fl_set_slot_color(track, slot, color)` -- FX slot color.
+
+**Pattern extras** (4 tools, stubs-found):
+  - `fl_arrange_select_pattern(index, value, preview)` -- multi-select aware.
+  - `fl_arrange_is_pattern_selected(index)`.
+  - `fl_arrange_is_pattern_default(index)` -- True for untouched patterns.
+  - `fl_arrange_burn_loop(channel, store_undo, update_ui)` -- disable step loop.
+
+### Bridge resilience
+
+`FLBridge.call()` now:
+  - Auto-retries once on `FLTimeout` with +50% budget (env: `FLSTUDIO_MCP_RETRY_ON_TIMEOUT=1`).
+  - Auto-closes + reopens MIDI ports after N consecutive failures (env: `FLSTUDIO_MCP_REOPEN_ON_DEAD=1`, `FLSTUDIO_MCP_REOPEN_AFTER=3`).
+
+Catches the "FL was restarted / controller script was reloaded" case where
+the MIDI device list changed under the bridge. TCP transport path is
+unaffected (daemon handles its own reconnect).
+
+### Honest-API-limit reports
+
+For `fl_save_project`, `fl_export_current_project_midi`, `fl_create_channel`,
+`fl_create_mixer_track`, `fl_get_automation_info`, `fl_set_automation_point`:
+the tool returns `ok=False, code='api_unavailable'` with a clear "FL's
+scripting API does not expose X on this build" message + the recommended
+manual workaround. Verified against FL 26.1.2 build 5557 that
+`general.save`, `channels.new`, `mixer.new`, and channel-rack automation
+are absent from the controller-script API.
+
+### Linux / Wine support (already on `main`, formalized here)
+
+- `scripts/install_linux.sh` -- Linux/Wine installer (copies controller
+  script, installs the Python server, seeds the note-bridge pyscript,
+  loads `snd-virmidi`, checks for `xdotool`).
+- `scripts/run_daemon_linux.sh` -- pins `FLSTUDIO_MCP_PORT_TO_FL` /
+  `FLSTUDIO_MCP_PORT_FROM_FL` to `Midi Through Port-0` to dodge Wine's
+  per-device ALSA-client renumbering.
+- `protocol.py: ChunkReassembler` + `connection.py` chunked-CC fallback --
+  some Wine MIDI drivers drop outbound SysEx from inside Wine; the
+  controller now emits every response + heartbeat twice (SysEx + a
+  Control-Change stream on channel 15 / ctrl 102-104) and the server
+  decodes whichever arrives.
+- `pyscript_trigger.py` -- Linux/xdotool path for the piano-roll note
+  trigger.
 
 The controller script now sends every outbound frame both as SysEx *and* as
 a stream of Control Change messages (one byte per message, on a reserved
