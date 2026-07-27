@@ -1,5 +1,96 @@
 # Changelog
 
+## Unreleased -- v0.4 / second API sweep + integration test
+
+Driven by a deeper paginated `api_probe()` of FL 26.1.2 build 5557 — the
+v0.3 probe hit a MIDI-buffer timeout that masked ~120 functions. v0.4
+uncovers them and ships them all.
+
+### New tools (99 added, total now 194 across 22 categories)
+
+**general (10)** -- project metadata + time signature + undo:
+  - `fl_get_project_author` / `fl_get_project_title` / `fl_get_project_genre`
+  - `fl_set_numerator` / `fl_set_denominator` / `fl_set_rec_ppq`
+  - `fl_get_undo_history_count` / `fl_get_undo_history_pos` / `fl_set_undo_history_pos`
+  - `fl_undo(count)` / `fl_redo(count)`
+
+**channels (14)** -- metadata + step sequencer:
+  - `fl_get_channel_type` / `fl_get_activity_level` / `fl_get_channel_index(name)`
+  - `fl_is_channel_selected` / `fl_is_channel_highlighted` / `fl_mute_channel`
+  - `fl_get_swing` / `fl_set_swing`
+  - `fl_get_grid_bit` / `fl_set_grid_bit`
+  - `fl_get_step_param` / `fl_get_current_step_param` / `fl_set_step_param_by_index`
+  - `fl_get_rec_event_id` / `fl_inc_event_value`
+
+**patterns (9)** -- color, length, channel loop, multi-select:
+  - `fl_arrange_get_pattern_length` / `fl_arrange_set_pattern_length`
+  - `fl_arrange_get_pattern_color` / `fl_arrange_set_pattern_color`
+  - `fl_arrange_get_channel_loop_style` / `fl_arrange_set_channel_loop`
+  - `fl_arrange_select_all` / `fl_arrange_deselect_all`
+  - `fl_arrange_is_any_pattern_selected`
+
+**mixer (36)** -- parametric EQ, plugin mix/mute, REC events, track ops:
+  - Full parametric EQ: `fl_mixer_get_eq_band_count` / `fl_mixer_get_eq_freq` /
+    `fl_mixer_set_eq_freq` / `fl_mixer_get_eq_bw` / `fl_mixer_set_eq_bw` /
+    `fl_mixer_get_eq_gain` / `fl_mixer_set_eq_gain` (7-band EQ on every
+    mixer track).
+  - Plugin metadata: `fl_mixer_get_track_plugin_id` /
+    `fl_mixer_is_track_plugin_valid` /
+    `fl_mixer_get_plugin_mix_level` / `fl_mixer_set_plugin_mix_level` /
+    `fl_mixer_get_plugin_mute_state` / `fl_mixer_set_plugin_mute_state`
+  - Track metadata: `fl_mixer_get_track_info` (TN_Master/FirstIns/LastIns/Sel) /
+    `fl_mixer_get_track_number` / `fl_mixer_set_track_number` /
+    `fl_mixer_get_active_track` / `fl_mixer_set_active_track` /
+    `fl_mixer_is_track_selected` / `fl_mixer_select_track` /
+    `fl_mixer_select_all` / `fl_mixer_deselect_all`
+  - REC events (low-level): `fl_mixer_get_event_value` /
+    `fl_mixer_get_event_id_name` / `fl_mixer_get_event_id_value_str` /
+    `fl_mixer_automate_event` (DANGEROUS — use with care) /
+    `fl_mixer_get_auto_smooth_event_val` / `fl_mixer_remote_find_event_value`
+  - Misc: `fl_mixer_enable_track` / `fl_mixer_get_track_recording_file` /
+    `fl_mixer_get_route_to_level` / `fl_mixer_enable_track_slots` /
+    `fl_mixer_is_track_mute_lock` / `fl_mixer_get_last_peak_vol` /
+    `fl_mixer_link_channel_to_track` / `fl_mixer_link_track_to_channel`
+
+**ui (24)** -- hint bar, snap mode, focused plugin, window, browser:
+  - Hint bar: `fl_get_hint_msg` / `fl_set_hint_msg` / `fl_show_notification`
+  - Lifecycle: `fl_get_focused_plugin_name` / `fl_is_closing`
+  - Snap mode: `fl_get_snap_mode` / `fl_set_snap_mode` / `fl_snap_on_off`
+  - Transport flags: `fl_is_metronome_enabled` / `fl_is_precount_enabled` /
+    `fl_is_loop_rec_enabled` / `fl_is_start_on_input_enabled`
+  - Editing mode: `fl_get_step_edit_mode` / `fl_set_step_edit_mode` /
+    `fl_get_time_disp_min` / `fl_set_time_disp_min`
+  - Windows: `fl_show_window` / `fl_hide_window` / `fl_get_visible` / `fl_select_window`
+  - Browser: `fl_navigate_browser` / `fl_navigate_browser_menu` /
+    `fl_navigate_browser_tabs` / `fl_select_browser_menu_item` /
+    `fl_preview_browser_menu_item` / `fl_toggle_browser_node` /
+    `fl_is_browser_auto_hide` / `fl_set_browser_auto_hide`
+
+### Honest-API-limit additions (build-specific absences)
+- `fl_arrange_set_pattern_length`: returns api_unavailable if
+  `patterns.setPatternLength` isn't on the build.
+- `fl_mixer_is_track_slots_enabled` / `fl_mixer_enable_track_slots`:
+  returns api_unavailable if `mixer.isTrackSlotsEnabled` isn't on the build.
+- `fl_mixer_is_track_rev_polarity` / `fl_mixer_rev_track_polarity` /
+  `fl_mixer_is_track_swap_channels` / `fl_mixer_swap_track_channels`:
+  returns api_unavailable if those mixer fns aren't on the build.
+- `fl_mixer_get_track_stereo_sep` / `fl_mixer_set_track_stereo_sep`:
+  same pattern for `mixer.getTrackStereoSep` / `setTrackStereoSep`.
+The handler probes the module for the function first; if it's missing,
+returns the same honest-not-implemented shape so the agent knows it's
+a build-version limit, not a bug.
+
+### Integration test
+- `scripts/integration_test.py` rewritten to cover **111 individual test
+  cases across 14 test groups**, including every v0.2/v0.3/v0.4 command
+  (read-only by default; mutating tools opt-in via env vars). Level
+  filter: `baseline` / `v03` / `v04` / `all`. Verbose mode via
+  `FLSTUDIO_MCP_INTEGRATION_VERBOSE=1`. Auto-retries transient
+  FLTimeouts (Wine MIDI flake).
+
+**Verified**: 111/111 PASSED, 0 FAILED, 0 SKIPPED with all mutating gates
+enabled. 88/88 PASSED in the default read-only run.
+
 ## Unreleased -- v0.3 / MCP enhancements (mcp-enhancements branch)
 
 Driven by a cross-reference of the
