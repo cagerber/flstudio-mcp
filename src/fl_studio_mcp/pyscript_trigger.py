@@ -2,8 +2,10 @@
 
 Windows uses the existing AttachThreadInput + synthetic-Alt focus path, then
 sends Ctrl+Alt+Y. macOS activates FL Studio through AppleScript, then sends
-Cmd+Opt+Y through pyautogui. The Piano Roll must be FL's active panel for the
-shortcut to fire because "Run last script again" is a piano-roll command.
+Cmd+Opt+Y through pyautogui. Linux/Wine uses xdotool to find and focus FL
+Studio's window, then sends Ctrl+Alt+Y. The Piano Roll must be FL's active
+panel for the shortcut to fire because "Run last script again" is a
+piano-roll command.
 """
 
 from __future__ import annotations
@@ -122,17 +124,87 @@ def _trigger_windows(settle=0.35):
     }
 
 
+def _trigger_linux(settle=0.35):
+    """Focus FL Studio under Wine on Linux and send Ctrl+Alt+Y.
+
+    Uses xdotool to find FL Studio's X11 window by title and focus it.
+    Falls back gracefully if xdotool is not installed or FL isn't running.
+    """
+    import pyautogui
+
+    pyautogui.FAILSAFE = False
+
+    # Find FL Studio's window. Under Wine the window title contains
+    # "FL Studio" (e.g. "FL Studio 2026").
+    try:
+        result = subprocess.run(
+            ["xdotool", "search", "--name", "FL Studio"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except FileNotFoundError:
+        return {
+            "platform": "linux",
+            "fl_found": False,
+            "focused": False,
+            "sent_hotkey": False,
+            "shortcut": "Ctrl+Alt+Y",
+            "error": (
+                "xdotool is not installed. Run: sudo apt install xdotool. "
+                "Without it, FL Studio cannot be auto-focused for note writing."
+            ),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "platform": "linux",
+            "fl_found": False,
+            "focused": False,
+            "sent_hotkey": False,
+            "shortcut": "Ctrl+Alt+Y",
+            "error": "xdotool search timed out.",
+        }
+
+    window_ids = result.stdout.strip().split()
+    if not window_ids:
+        return {
+            "platform": "linux",
+            "fl_found": False,
+            "focused": False,
+            "sent_hotkey": False,
+            "shortcut": "Ctrl+Alt+Y",
+            "error": (
+                "FL Studio window not found. Make sure FL Studio is running "
+                "under Wine and its window title contains 'FL Studio'."
+            ),
+        }
+
+    # Use the first matching window
+    win_id = window_ids[0]
+    focused = False
+    try:
+        subprocess.run(
+            ["xdotool", "windowactivate", "--sync", win_id],
+            capture_output=True, timeout=3,
+        )
+        focused = True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    time.sleep(settle)
+    pyautogui.hotkey("ctrl", "alt", "y")
+    return {
+        "platform": "linux",
+        "fl_found": True,
+        "focused": focused,
+        "sent_hotkey": True,
+        "shortcut": "Ctrl+Alt+Y",
+    }
+
+
 def trigger_run_last_script(settle=0.35):
     """Focus FL Studio and send the platform "Run last script again" shortcut."""
     if sys.platform == "win32":
         return _trigger_windows(settle)
     if sys.platform == "darwin":
         return _trigger_macos(settle)
-    return {
-        "platform": sys.platform,
-        "fl_found": False,
-        "focused": False,
-        "sent_hotkey": False,
-        "shortcut": "Ctrl+Alt+Y",
-        "error": "Automatic pyscript triggering is only supported on Windows and macOS.",
-    }
+    # Linux and other Unix-like systems (Wine)
+    return _trigger_linux(settle)

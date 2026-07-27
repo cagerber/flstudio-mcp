@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased -- chunked short-message fallback (Wine/Linux)
+
+Non-breaking addition to the v0.2 transport. Some Wine MIDI drivers
+(`winealsa.drv`) silently drop outbound SysEx sent from inside Wine
+(`device.midiOutSysex` / `midiOutLongMsg`) while short messages
+(`device.midiOutMsg` / `midiOutShortMsg`) go through fine -- this affects FL
+Studio running under Wine on Linux, where the FL -> server direction (TX
+port: responses + heartbeats) went dark even though the server -> FL
+direction (RX port: requests) worked.
+
+The controller script now sends every outbound frame both as SysEx *and* as
+a stream of Control Change messages (one byte per message, on a reserved
+channel/controller triple: `CHUNK_CHANNEL=15`, controllers `102/103/104` for
+start/data/end). The server's MIDI callback reassembles whichever one
+actually arrives (`protocol.ChunkReassembler`). No config changes needed;
+this is transparent on Windows/macOS, and unblocks Wine hosts without
+requiring a patched Wine build.
+
 ## v0.2.0 -- MIDI SysEx transport
 
 **Breaking change**: the transport between the MCP server and the FL

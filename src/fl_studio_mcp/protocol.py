@@ -245,6 +245,51 @@ def make_response_err(error: str, *, code: str = "error") -> dict:
     return {"v": PROTOCOL_VERSION, "ok": False, "error": error, "code": code}
 
 
+# ---------------------------------------------------------------------------
+# Chunked short-message fallback transport
+# ---------------------------------------------------------------------------
+# Some Wine MIDI drivers (winealsa.drv) silently drop SysEx sent from inside
+# Wine (device.midiOutSysex / midiOutLongMsg) even though short messages
+# (midiOutMsg / midiOutShortMsg) work fine. FL sends every outbound frame
+# (heartbeat + response) both as SysEx AND as this chunked short-message
+# stream; whichever one actually makes it through ALSA gets decoded here.
+# One Control Change per byte, on a channel/controller triple nothing else
+# on this dedicated port uses.
+CHUNK_CHANNEL = 15
+CHUNK_CTRL_START = 102
+CHUNK_CTRL_DATA = 103
+CHUNK_CTRL_END = 104
+
+
+class ChunkReassembler:
+    """Reassembles a byte buffer from a stream of chunked CC messages.
+
+    FL's script never interleaves two frames (it sends one fully inside a
+    single, non-reentrant callback), so a single in-flight buffer is enough.
+    """
+
+    def __init__(self) -> None:
+        self._buf = bytearray()
+        self._active = False
+
+    def feed_cc(self, channel: int, control: int, value: int) -> bytes | None:
+        """Feed one Control Change message. Returns the completed buffer on
+        end-of-frame, otherwise None."""
+        if channel != CHUNK_CHANNEL:
+            return None
+        if control == CHUNK_CTRL_START:
+            self._buf = bytearray()
+            self._active = True
+        elif control == CHUNK_CTRL_DATA:
+            if self._active:
+                self._buf.append(value & 0x7F)
+        elif control == CHUNK_CTRL_END:
+            if self._active:
+                self._active = False
+                return bytes(self._buf)
+        return None
+
+
 def system_label() -> str:
     """Short OS label, useful in heartbeats and logs."""
     return "%s %s" % (platform.system(), platform.release())

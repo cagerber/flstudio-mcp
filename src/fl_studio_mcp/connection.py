@@ -128,6 +128,7 @@ class FLBridge:
         self._pending: Dict[str, _Slot] = {}
         self._last_heartbeat: float = 0.0
         self._heartbeat_payload: Optional[dict] = None
+        self._chunk_reassembler = protocol.ChunkReassembler()
 
         self._out_port = None
         self._in_port = None
@@ -271,10 +272,21 @@ class FLBridge:
     # -- inbound MIDI callback -----------------------------------------------
 
     def _on_midi(self, msg) -> None:
-        """Called from a background MIDI thread."""
-        if msg.type != "sysex":
+        """Called from a background MIDI thread.
+
+        Accepts both real SysEx and the chunked short-message fallback (see
+        protocol.ChunkReassembler) -- some Wine MIDI drivers drop outbound
+        SysEx from FL while short messages still get through.
+        """
+        if msg.type == "sysex":
+            buf = msg.data
+        elif msg.type == "control_change":
+            buf = self._chunk_reassembler.feed_cc(msg.channel, msg.control, msg.value)
+            if buf is None:
+                return
+        else:
             return
-        decoded = protocol.decode_message(msg.data)
+        decoded = protocol.decode_message(buf)
         if decoded is None:
             return  # Not one of ours -- ignore.
         direction, request_id, payload = decoded

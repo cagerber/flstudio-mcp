@@ -81,6 +81,16 @@ _HEADER_LEN = 1 + 3 + 1 + REQUEST_ID_LEN
 
 HEARTBEAT_INTERVAL = 0.5  # seconds between heartbeats
 
+# Chunked short-message fallback (mirrors src/fl_studio_mcp/protocol.py).
+# Some Wine MIDI drivers (winealsa.drv) silently drop outbound SysEx sent via
+# device.midiOutSysex, even though short messages (device.midiOutMsg) get
+# through fine. We send every outbound frame both ways; the server decodes
+# whichever one actually arrives.
+CHUNK_CHANNEL = 15
+CHUNK_CTRL_START = 102
+CHUNK_CTRL_DATA = 103
+CHUNK_CTRL_END = 104
+
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -243,15 +253,27 @@ def _decode_message(data):
     return direction, request_id, payload
 
 
-def _send_message(direction, request_id, payload):
-    if _send_sysex_fn is None:
-        return
-    body = _encode_message(direction, request_id, payload)
-    framed = bytes([0xF0]) + body + bytes([0xF7])
+def _send_chunked(body):
+    """Fallback path for Wine hosts that drop outbound SysEx: send the same
+    bytes as a stream of Control Change messages instead."""
     try:
-        _send_sysex_fn(framed)
+        device.midiOutMsg(0xB0, CHUNK_CHANNEL, CHUNK_CTRL_START, 0)
+        for b in body:
+            device.midiOutMsg(0xB0, CHUNK_CHANNEL, CHUNK_CTRL_DATA, b & 0x7F)
+        device.midiOutMsg(0xB0, CHUNK_CHANNEL, CHUNK_CTRL_END, 0)
     except Exception as e:
-        print("[FLStudioMCP] midiOutSysex failed: %s" % e)
+        print("[FLStudioMCP] chunked send failed: %s" % e)
+
+
+def _send_message(direction, request_id, payload):
+    body = _encode_message(direction, request_id, payload)
+    if _send_sysex_fn is not None:
+        framed = bytes([0xF0]) + body + bytes([0xF7])
+        try:
+            _send_sysex_fn(framed)
+        except Exception as e:
+            print("[FLStudioMCP] midiOutSysex failed: %s" % e)
+    _send_chunked(body)
 
 
 def _emit_heartbeat():
