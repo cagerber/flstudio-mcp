@@ -1189,13 +1189,52 @@ def _h_export_current_project_midi(p):
 
 
 def _h_create_channel(p):
-    raise _ClientError("create_channel: not yet implemented in this controller build",
-                       code="not_implemented")
+    """FL's scripting API does NOT expose channels.new() (verified via
+    api_probe -- channels has 54 public names, none of them 'new'/'add'/
+    'create'/'insert'). The only way to add a channel-rack channel is in
+    the FL UI: Channel rack > + button > [Sampler / plugin].
+
+    This command accepts an optional ``name`` so the response documents
+    what we WISHED we could create, and returns an honest
+    not-implemented report with the recommendation."""
+    out = {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "requested_name": p.get("name"),
+        "requested_position": p.get("position"),
+        "channel_count": _safe(lambda: channels.channelCount()),  # type: ignore[attr-defined]
+        "recommendation": (
+            "FL's scripting API does not expose channel creation. In FL: "
+            "Channel Rack > click '+' > choose Sampler / your plugin > the "
+            "new channel appears at the end. After adding, you can rename "
+            "it via fl_set_channel_name and route notes to it via "
+            "fl_arrange_select_channel + fl_write_raga_chords/melody."
+        ),
+    }
+    return out
 
 
 def _h_create_mixer_track(p):
-    raise _ClientError("create_mixer_track: not yet implemented in this controller build",
-                       code="not_implemented")
+    """FL's scripting API does NOT expose mixer.new() (verified via
+    api_probe -- mixer has 75 public names, none of them 'new'/'add'/
+    'create'/'insert'). The only way to add a mixer track is in the FL
+    UI: Mixer > + button (or right-click > Insert)."""
+    out = {
+        "ok": False,
+        "code": "api_unavailable",
+        "implementation": "honest_not_implemented",
+        "requested_name": p.get("name"),
+        "requested_position": p.get("position"),
+        "mixer_track_count": _safe(lambda: mixer.getTrackCount()),  # type: ignore[attr-defined]
+        "recommendation": (
+            "FL's scripting API does not expose mixer track creation. In "
+            "FL: Mixer > click '+' (Insert track) or right-click an "
+            "existing track > Insert. After adding, you can rename it via "
+            "fl_set_mixer_name."
+        ),
+    }
+    return out
 
 
 def _h_load_plugin_preset(p):

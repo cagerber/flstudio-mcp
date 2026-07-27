@@ -113,3 +113,53 @@ def register(mcp: FastMCP) -> None:
         if output_path is not None:
             params["path"] = output_path
         return get_bridge().call(protocol.CMD_EXPORT_CURRENT_PROJECT_MIDI, params)
+
+    @mcp.tool(annotations={
+        "title": "Create channel (FL API limitation report)", **_RO
+    })
+    def fl_create_channel(
+        name: Annotated[
+            Optional[str], Field(description="Optional intended name; documented only.")
+        ] = None,
+        position: Annotated[
+            Optional[int], Field(description="Optional intended 0-based index; documented only.")
+        ] = None,
+    ) -> dict:
+        """Report that FL's scripting API does NOT expose channel creation
+        (channels.new / channels.add do not exist on FL 26.1.2 build 5557).
+
+        Workaround: in FL, Channel Rack > '+' > choose Sampler / your plugin.
+        After adding the channel, you can rename it via fl_set_channel_name
+        and route notes to it via fl_arrange_select_channel + the note-bridge
+        tools (fl_write_raga_chords, fl_write_raga_melody, etc).
+        """
+        params: dict = {}
+        if name is not None:
+            params["name"] = name
+        if position is not None:
+            params["position"] = position
+        return get_bridge().call(protocol.CMD_CREATE_CHANNEL, params)
+
+    @mcp.tool(annotations={
+        "title": "Create mixer track (FL API limitation report)", **_RO
+    })
+    def fl_create_mixer_track(
+        name: Annotated[
+            Optional[str], Field(description="Optional intended name; documented only.")
+        ] = None,
+        position: Annotated[
+            Optional[int], Field(description="Optional intended index; documented only.")
+        ] = None,
+    ) -> dict:
+        """Report that FL's scripting API does NOT expose mixer-track creation
+        (mixer.new / mixer.add do not exist on FL 26.1.2 build 5557).
+
+        Workaround: in FL, Mixer > '+' > Insert track (or right-click an
+        existing track > Insert). After adding, rename via fl_set_mixer_name.
+        """
+        params: dict = {}
+        if name is not None:
+            params["name"] = name
+        if position is not None:
+            params["position"] = position
+        return get_bridge().call(protocol.CMD_CREATE_MIXER_TRACK, params)
