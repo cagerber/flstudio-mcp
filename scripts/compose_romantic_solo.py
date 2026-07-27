@@ -141,16 +141,14 @@ print(f"ensure piano roll: {r}")
 
 # Write the notes
 print("\n=== Writing notes ===")
+# Extend pattern to cover the full song span + headroom
+max_bar = max(n['time_bars'] + n['length_bars'] for n in note_dicts)
+pattern_beats = int(max_bar * 4) + 8  # 4 beats/bar + 2 bars headroom
+print(f"Pattern span: {max_bar:.0f} bars -> extending to {pattern_beats} beats")
+r = b.call(P.CMD_SET_PATTERN_LENGTH, {'index': 1, 'beats': pattern_beats}, timeout=6.0)
+print(f"  set_pattern_length: {r}")
+
 # apply_notes takes the MCP-side: (notes, mode, trigger, quantize, snap_ends)
-# We use the v0.3 note-bridge path. The protocol command is exposed via the
-# bridge's apply_notes() method, not via a protocol command -- so we need
-# to use the connection's apply_notes directly.
-# Actually, the note bridge IS exposed via CMD_ENSURE_PIANO_ROLL + fl_write_raga_melody
-# which lives in the MCP server, not the bridge. The bridge has a .apply_notes()
-# method we can call directly.
-# But we need to call it on the BRIDGE INSTANCE with the same note format.
-# The apply_notes signature is (notes, mode='replace', trigger=True, quantize=None, snap_ends=False)
-# We call it on the TCPBridge directly.
 r = b.apply_notes(note_dicts, mode='replace', trigger=True, quantize=None, snap_ends=False)
 print(f"apply_notes result: {r}")
 
