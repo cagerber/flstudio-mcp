@@ -2021,9 +2021,11 @@ def _h_pattern_is_any_selected(p):
 # -- mixer: parametric EQ, plugin mix/mute, automation helpers, track ops -
 
 def _h_mixer_get_eq_band_count(p):
-    track = int(p["track"])
+    """mixer.getEqBandCount() takes no arguments on this FL build -- it
+    returns the band count for the currently-selected track (or master).
+    The 'track' param is accepted for protocol consistency but ignored."""
     try:
-        return {"ok": True, "track": track, "band_count": int(mixer.getEqBandCount(track))}  # type: ignore[attr-defined]
+        return {"ok": True, "band_count": int(mixer.getEqBandCount())}  # type: ignore[attr-defined]
     except Exception as e:
         return {"ok": False, "error": "getEqBandCount: %s" % e}
 

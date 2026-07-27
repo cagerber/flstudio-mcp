@@ -585,12 +585,12 @@ def test_v04_ui(results: Results, bridge):
               lambda: bridge.call(protocol.CMD_IS_BROWSER_AUTO_HIDE, {}, timeout=6.0))
     # ui.showWindow with widPianoRoll = 0 (FL's constant); if absent,
     # the controller returns api_unavailable or an error -- that's OK.
-    safe_call(results, "v04_get_visible (widPianoRoll=0)",
-              lambda: bridge.call(protocol.CMD_GET_VISIBLE, {"window_id": 0}, timeout=6.0))
-    safe_call(results, "v04_show_window (widPianoRoll=0)",
-              lambda: bridge.call(protocol.CMD_SHOW_WINDOW, {"window_id": 0}, timeout=6.0))
-    safe_call(results, "v04_hide_window (widPianoRoll=0)",
-              lambda: bridge.call(protocol.CMD_HIDE_WINDOW, {"window_id": 0}, timeout=6.0))
+    safe_call(results, "v04_get_visible (widPianoRoll=3)",
+              lambda: bridge.call(protocol.CMD_GET_VISIBLE, {"window_id": 3}, timeout=6.0))
+    safe_call(results, "v04_show_window (widPianoRoll=3)",
+              lambda: bridge.call(protocol.CMD_SHOW_WINDOW, {"window_id": 3}, timeout=6.0))
+    safe_call(results, "v04_hide_window (widPianoRoll=3)",
+              lambda: bridge.call(protocol.CMD_HIDE_WINDOW, {"window_id": 3}, timeout=6.0))
     # UI mutating tools -- gated
     if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_HINT_MSG"):
         safe_call(results, "v04_set_hint_msg (MUTATES UI)",
@@ -612,6 +612,156 @@ def test_v04_ui(results: Results, bridge):
 
 
 # ----------------------------------------------------------------------
+def test_v05_rec_surface(results: Results, bridge):
+    """v0.5 typed REC surface (channel + mixer + master + transport + scale
+    + named-enum wrappers). Read tests default-on; mutating tests
+    gated behind env vars (see v0.3/v0.4 mutating-gate pattern)."""
+    print("\n--- v0.5 REC surface (channel properties) ---")
+    # Reads (all default-on)
+    safe_call(results, "v05_get_channel_property (volume)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_PROPERTY,
+                                  {"channel": 0, "property": "volume"}, timeout=6.0))
+    safe_call(results, "v05_get_channel_property (pan)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_PROPERTY,
+                                  {"channel": 0, "property": "pan"}, timeout=6.0))
+    safe_call(results, "v05_get_channel_property (mute)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_PROPERTY,
+                                  {"channel": 0, "property": "mute"}, timeout=6.0))
+    safe_call(results, "v05_get_channel_property (fx_track)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_PROPERTY,
+                                  {"channel": 0, "property": "fx_track"}, timeout=6.0))
+    safe_call(results, "v05_get_channel_property (swing_mix)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_PROPERTY,
+                                  {"channel": 0, "property": "swing_mix"}, timeout=6.0))
+    # Mutating
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_CHANNEL_PROPERTY"):
+        safe_call(results, "v05_set_channel_property (pan=0, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_CHANNEL_PROPERTY,
+                                      {"channel": 0, "property": "pan", "value": 640}, timeout=6.0))
+    else:
+        results.skip("v05_set_channel_property", "set FLSTUDIO_MCP_INTEGRATION_SET_CHANNEL_PROPERTY=1")
+
+    print("\n--- v0.5 REC surface (mixer properties) ---")
+    safe_call(results, "v05_get_mixer_property (track 0 volume)",
+              lambda: bridge.call(protocol.CMD_GET_MIXER_PROPERTY,
+                                  {"track": 0, "property": "volume"}, timeout=6.0))
+    safe_call(results, "v05_get_mixer_property (track 0 pan)",
+              lambda: bridge.call(protocol.CMD_GET_MIXER_PROPERTY,
+                                  {"track": 0, "property": "pan"}, timeout=6.0))
+    safe_call(results, "v05_get_mixer_property (track 0 stereo_sep)",
+              lambda: bridge.call(protocol.CMD_GET_MIXER_PROPERTY,
+                                  {"track": 0, "property": "stereo_sep"}, timeout=6.0))
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_MIXER_PROPERTY"):
+        safe_call(results, "v05_set_mixer_property (pan=640, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_MIXER_PROPERTY,
+                                      {"track": 0, "property": "pan", "value": 640}, timeout=6.0))
+    else:
+        results.skip("v05_set_mixer_property", "set FLSTUDIO_MCP_INTEGRATION_SET_MIXER_PROPERTY=1")
+
+    print("\n--- v0.5 full 8-band EQ ---")
+    # get_eq_band (all 8 bands, read all 4 props at once)
+    for band in range(8):
+        safe_call(results, f"v05_get_eq_band (band {band})",
+                  lambda b=band: bridge.call(protocol.CMD_GET_EQ_BAND,
+                                              {"track": 0, "band": b}, timeout=6.0))
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_EQ_BAND"):
+        safe_call(results, "v05_set_eq_band (band 0 gain=0 freq=1000, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_EQ_BAND, {
+                      "track": 0, "band": 0,
+                      "gain": 0.0, "frequency_hz": 1000.0, "bandwidth_oct": 1.0,
+                  }, timeout=6.0))
+    else:
+        results.skip("v05_set_eq_band", "set FLSTUDIO_MCP_INTEGRATION_SET_EQ_BAND=1")
+
+    print("\n--- v0.5 master controls ---")
+    safe_call(results, "v05_get_master_volume",
+              lambda: bridge.call(protocol.CMD_GET_MASTER_VOLUME, {}, timeout=6.0))
+    safe_call(results, "v05_get_master_shuffle",
+              lambda: bridge.call(protocol.CMD_GET_MASTER_SHUFFLE, {}, timeout=6.0))
+    safe_call(results, "v05_get_master_pitch",
+              lambda: bridge.call(protocol.CMD_GET_MASTER_PITCH, {}, timeout=6.0))
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_MASTER"):
+        safe_call(results, "v05_set_master_volume (0.8, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_MASTER_VOLUME,
+                                      {"volume": 0.8}, timeout=6.0))
+        safe_call(results, "v05_set_master_shuffle (0.0, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_MASTER_SHUFFLE,
+                                      {"shuffle": 0.0}, timeout=6.0))
+        safe_call(results, "v05_set_master_pitch (0, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_MASTER_PITCH,
+                                      {"pitch_semitones": 0.0}, timeout=6.0))
+    else:
+        results.skip("v05_set_master_volume", "set FLSTUDIO_MCP_INTEGRATION_SET_MASTER=1")
+        results.skip("v05_set_master_shuffle", "set FLSTUDIO_MCP_INTEGRATION_SET_MASTER=1")
+        results.skip("v05_set_master_pitch", "set FLSTUDIO_MCP_INTEGRATION_SET_MASTER=1")
+
+    print("\n--- v0.5 transport (start/stop, song pos) ---")
+    safe_call(results, "v05_get_song_position_bars",
+              lambda: bridge.call(protocol.CMD_GET_SONG_POSITION_BARS, {}, timeout=6.0))
+    safe_call(results, "v05_get_song_length_bars",
+              lambda: bridge.call(protocol.CMD_GET_SONG_LENGTH_BARS, {}, timeout=6.0))
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_SONG_POSITION"):
+        safe_call(results, "v05_set_song_position_bars (0, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_SONG_POSITION_BARS,
+                                      {"bars": 0}, timeout=6.0))
+    else:
+        results.skip("v05_set_song_position_bars", "set FLSTUDIO_MCP_INTEGRATION_SET_SONG_POSITION=1")
+    # start_stop: gated, touches transport
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_START_STOP"):
+        safe_call(results, "v05_start_stop (0=stop, MUTATES TRANSPORT)",
+                  lambda: bridge.call(protocol.CMD_START_STOP, {"value": 0}, timeout=6.0))
+    else:
+        results.skip("v05_start_stop", "set FLSTUDIO_MCP_INTEGRATION_START_STOP=1")
+
+    print("\n--- v0.5 scale + named enums ---")
+    # set_scale returns an honest 'api_unavailable' on this build -- expect that
+    safe_call(results, "v05_set_scale (major, expect api_unavailable)",
+              lambda: bridge.call(protocol.CMD_SET_SCALE, {"scale": "major"}, timeout=6.0))
+    safe_call(results, "v05_get_scale (expect api_unavailable)",
+              lambda: bridge.call(protocol.CMD_GET_SCALE, {}, timeout=6.0))
+    safe_call(results, "v05_get_channel_type_named (ch 0)",
+              lambda: bridge.call(protocol.CMD_GET_CHANNEL_TYPE_NAMED,
+                                  {"index": 0}, timeout=6.0))
+    safe_call(results, "v05_get_step_param_named (ch 0, step 0, velocity)",
+              lambda: bridge.call(protocol.CMD_GET_STEP_PARAM_NAMED, {
+                  "channel": 0, "step": 0, "param": "velocity",
+              }, timeout=6.0))
+    safe_call(results, "v05_get_step_param_named (ch 0, step 0, pan)",
+              lambda: bridge.call(protocol.CMD_GET_STEP_PARAM_NAMED, {
+                  "channel": 0, "step": 0, "param": "pan",
+              }, timeout=6.0))
+    safe_call(results, "v05_get_step_param_list (ch 0, step 0, all 9 params)",
+              lambda: bridge.call(protocol.CMD_GET_STEP_PARAM_LIST, {
+                  "channel": 0, "step": 0,
+              }, timeout=6.0))
+    if _env_flag("FLSTUDIO_MCP_INTEGRATION_SET_STEP_PARAM"):
+        safe_call(results, "v05_set_step_param_named (pan=0.5, MUTATES)",
+                  lambda: bridge.call(protocol.CMD_SET_STEP_PARAM_NAMED, {
+                      "channel": 0, "step": 0, "param": "pan", "value": 0.5,
+                  }, timeout=6.0))
+    else:
+        results.skip("v05_set_step_param_named", "set FLSTUDIO_MCP_INTEGRATION_SET_STEP_PARAM=1")
+
+
+def test_v05_server_helpers(results: Results, bridge):
+    """v0.5 server-side helpers (no FL roundtrip -- just math)."""
+    print("\n--- v0.5 server-side helpers (no FL state) ---")
+    safe_call(results, "v05_note_name (60 -> C5)",
+              lambda: bridge.call(protocol.CMD_NOTE_NAME, {"note": 60}, timeout=6.0))
+    safe_call(results, "v05_note_name (69 -> A4)",
+              lambda: bridge.call(protocol.CMD_NOTE_NAME, {"note": 69}, timeout=6.0))
+    safe_call(results, "v05_note_name (72 -> C6)",
+              lambda: bridge.call(protocol.CMD_NOTE_NAME, {"note": 72}, timeout=6.0))
+    safe_call(results, "v05_vol_to_db (0.0 -> 0 dB)",
+              lambda: bridge.call(protocol.CMD_VOL_TO_DB, {"volume": 0.0}, timeout=6.0))
+    safe_call(results, "v05_vol_to_db (0.5 -> -12.7 dB)",
+              lambda: bridge.call(protocol.CMD_VOL_TO_DB, {"volume": 0.5}, timeout=6.0))
+    safe_call(results, "v05_vol_to_db (0.8 -> -4.7 dB)",
+              lambda: bridge.call(protocol.CMD_VOL_TO_DB, {"volume": 0.8}, timeout=6.0))
+    safe_call(results, "v05_vol_to_db (1.0 -> 0 dB)",
+              lambda: bridge.call(protocol.CMD_VOL_TO_DB, {"volume": 1.0}, timeout=6.0))
+
+
 # Main
 # ----------------------------------------------------------------------
 def main() -> int:
@@ -652,6 +802,9 @@ def main() -> int:
         test_v04_patterns(results, bridge)
         test_v04_mixer(results, bridge)
         test_v04_ui(results, bridge)
+    if level in ("all", "v05"):
+        test_v05_rec_surface(results, bridge)
+        test_v05_server_helpers(results, bridge)
 
     verbose = _env_flag("FLSTUDIO_MCP_INTEGRATION_VERBOSE")
     print(results.summary(verbose=verbose))
